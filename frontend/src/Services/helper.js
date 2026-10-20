@@ -9,7 +9,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // export const SERVER_URL = 'https://pulsechat-hoid.onrender.com';
 
 // Local Development Server (connected to local MongoDB on port 5000):
-export const SERVER_URL = 'http://localhost:5000';
+// export const SERVER_URL = 'http://localhost:5000'; 
+export const SERVER_URL = 'https://pulsechat-backend-szl8.onrender.com'
 export const BASE_URL = `${SERVER_URL}/api`;
 
 export const SOCKET_URL = SERVER_URL;
