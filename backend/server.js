@@ -1,3 +1,8 @@
+const dns = require('dns');
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch (e) {}
+
 require('dotenv').config();
 const http = require('http');
 const path = require('path');
@@ -5,6 +10,9 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const { Server } = require('socket.io');
+const env = require('dotenv');
+env.config()
+const mongoUri = process.env.MONGODB_URI;
 
 const connectDB = require('./db_config/mongodb_conn');
 const User = require('./Modal/RegisterModal');
@@ -21,8 +29,12 @@ const profileRouter = require('./Router/profileRouter');
 const app = express();
 const server = http.createServer(app);
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB Atlas
+connectDB().then(() => {
+  User.updateMany({}, { isOnline: false, socketId: null }).catch((err) =>
+    console.error('Error resetting initial user statuses:', err)
+  );
+});
 
 // Security & Utility Middlewares
 app.use(
@@ -52,11 +64,6 @@ app.set('io', io);
 // Store active users: userId -> socketId
 const activeUsers = new Map();
 app.set('activeUsers', activeUsers);
-
-// Reset stale online statuses on server start
-User.updateMany({}, { isOnline: false, socketId: null }).catch((err) =>
-  console.error('Error resetting initial user statuses:', err)
-);
 
 // Socket.io Connection & Real-time Handlers
 io.on('connection', (socket) => {
