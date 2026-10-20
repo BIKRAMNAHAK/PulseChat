@@ -26,10 +26,12 @@ import {
   acceptRequestAction,
   rejectRequestAction,
 } from '../Services/Actions/chatActions';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
 const ChatsScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { friends, groups = [], incomingRequests = [] } = useSelector((state) => state.chat);
   const { user } = useSelector((state) => state.auth);
@@ -468,7 +470,7 @@ const ChatsScreen = ({ navigation }) => {
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Top App Bar */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <View style={styles.brandRow}>
           <View style={styles.brandIconCircle}>
             <Ionicons name="chatbubbles" size={16} color="#FFFFFF" />

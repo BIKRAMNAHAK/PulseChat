@@ -15,7 +15,9 @@ import {
   TouchableWithoutFeedback,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Video from 'react-native-video';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { fetchStatusesAction, uploadStatusAction } from '../Services/Actions/chatActions';
 import { theme, postApi, deleteApi } from '../Services/helper';
@@ -32,6 +34,7 @@ const COLOR_PRESETS = [
 ];
 
 const StatusScreen = () => {
+  const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { user } = useSelector((state) => state.auth);
   const { statuses } = useSelector((state) => state.chat);
@@ -236,7 +239,7 @@ const StatusScreen = () => {
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <Text style={styles.topTitle}>Updates & Status</Text>
       </View>
 
@@ -435,11 +438,21 @@ const StatusScreen = () => {
             {/* Media Preview */}
             {selectedAsset?.uri ? (
               <View style={styles.previewBox}>
-                <Image
-                  source={{ uri: selectedAsset.uri }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
+                {selectedAsset.type?.includes('video') ? (
+                  <Video
+                    source={{ uri: selectedAsset.uri }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                    repeat
+                    muted
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: selectedAsset.uri }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                  />
+                )}
                 {selectedAsset.type?.includes('video') && (
                   <View style={styles.videoBadge}>
                     <Ionicons name="videocam" size={16} color="#FFFFFF" />
@@ -614,6 +627,17 @@ const StatusScreen = () => {
               <View style={styles.fullscreenTextWrap}>
                 <Text style={styles.fullscreenText}>{currentStory.caption}</Text>
               </View>
+            ) : currentStory?.mediaType === 'video' ||
+              currentStory?.mediaUrl?.toLowerCase().endsWith('.mp4') ||
+              currentStory?.mediaUrl?.toLowerCase().includes('/statuses/media-') ? (
+              <Video
+                source={{ uri: currentStory.mediaUrl }}
+                style={styles.storyFullVideo}
+                resizeMode="contain"
+                repeat
+                paused={!viewerVisible}
+                controls={false}
+              />
             ) : currentStory?.mediaUrl ? (
               <Image
                 source={{ uri: currentStory.mediaUrl }}
@@ -1171,6 +1195,10 @@ const styles = StyleSheet.create({
     lineHeight: 36,
   },
   storyFullImage: {
+    width: width,
+    height: '80%',
+  },
+  storyFullVideo: {
     width: width,
     height: '80%',
   },

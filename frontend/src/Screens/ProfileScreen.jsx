@@ -13,19 +13,31 @@ import {
   Modal,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logoutAction, UPDATE_USER } from '../Services/Actions/authActions';
 import { putApi, theme } from '../Services/helper';
 
-const ProfileScreen = ({ navigation }) => {
+const ProfileScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
-  const { user } = useSelector((state) => state.auth);
+  const { user: currentUser } = useSelector((state) => state.auth);
 
-  const [fullName, setFullName] = useState(user?.fullName || '');
-  const [about, setAbout] = useState(user?.about || 'Hey there! I am using PulseChat.');
-  const [profilePic, setProfilePic] = useState(user?.profilePic || '');
+  const targetUser =
+    route?.params?.profileUser ||
+    (route?.params?.userId && route?.params?.userId !== currentUser?._id
+      ? { _id: route.params.userId }
+      : currentUser);
+
+  const isSelf = !route?.params?.userId || route.params.userId === currentUser?._id;
+
+  const [fullName, setFullName] = useState(isSelf ? currentUser?.fullName || '' : targetUser?.fullName || '');
+  const [about, setAbout] = useState(
+    isSelf ? currentUser?.about || 'Hey there! I am using PulseChat.' : targetUser?.about || 'Available'
+  );
+  const [profilePic, setProfilePic] = useState(isSelf ? currentUser?.profilePic || '' : targetUser?.profilePic || '');
   const [saving, setSaving] = useState(false);
   const [pickerModalVisible, setPickerModalVisible] = useState(false);
 
@@ -124,15 +136,15 @@ const ProfileScreen = ({ navigation }) => {
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.topTitle}>Profile</Text>
+        <Text style={styles.topTitle}>{isSelf ? 'My Profile' : targetUser?.fullName || 'Contact Info'}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Avatar Section with Camera Edit Button */}
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 20 }]}>
+        {/* Avatar Section */}
         <View style={styles.avatarSection}>
           <View style={styles.avatarWrap}>
             {profilePic ? (
@@ -143,20 +155,67 @@ const ProfileScreen = ({ navigation }) => {
               </View>
             )}
 
-            {/* Edit Photo Icon Button */}
-            <TouchableOpacity
-              style={styles.cameraBadge}
-              onPress={() => setPickerModalVisible(true)}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="camera" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
+            {/* Edit Photo Icon Button (Self only) */}
+            {isSelf && (
+              <TouchableOpacity
+                style={styles.cameraBadge}
+                onPress={() => setPickerModalVisible(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="camera" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
           </View>
 
-          <TouchableOpacity onPress={() => setPickerModalVisible(true)}>
-            <Text style={styles.changePicHint}>Change Profile Photo</Text>
-          </TouchableOpacity>
+          {isSelf ? (
+            <TouchableOpacity onPress={() => setPickerModalVisible(true)}>
+              <Text style={styles.changePicHint}>Change Profile Photo</Text>
+            </TouchableOpacity>
+          ) : targetUser?.isOnline ? (
+            <View style={styles.onlineBadgePill}>
+              <View style={styles.onlineDot} />
+              <Text style={styles.onlineBadgeText}>ONLINE NOW</Text>
+            </View>
+          ) : null}
         </View>
+
+        {/* Quick Actions (Message, Audio Call, Video Call) for other users */}
+        {!isSelf && (
+          <View style={styles.actionRowContainer}>
+            <TouchableOpacity
+              style={styles.actionBtnCard}
+              onPress={() => navigation.navigate('Chat', { recipient: targetUser })}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.actionIconCircle, { backgroundColor: '#E6FAF5' }]}>
+                <Ionicons name="chatbubbles" size={20} color={theme.accent} />
+              </View>
+              <Text style={styles.actionBtnLabel}>Message</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionBtnCard}
+              onPress={() => navigation.navigate('Chat', { recipient: targetUser, initiateCall: 'audio' })}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.actionIconCircle, { backgroundColor: '#EFF6FF' }]}>
+                <Ionicons name="call" size={20} color="#2563EB" />
+              </View>
+              <Text style={styles.actionBtnLabel}>Audio Call</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionBtnCard}
+              onPress={() => navigation.navigate('Chat', { recipient: targetUser, initiateCall: 'video' })}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.actionIconCircle, { backgroundColor: '#F0FDF4' }]}>
+                <Ionicons name="videocam" size={20} color="#16A34A" />
+              </View>
+              <Text style={styles.actionBtnLabel}>Video Call</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Info Cards */}
         <View style={styles.card}>
@@ -165,13 +224,17 @@ const ProfileScreen = ({ navigation }) => {
             <Ionicons name="person-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
               <Text style={styles.itemLabel}>Name</Text>
-              <TextInput
-                style={styles.itemInput}
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="Your full name"
-                placeholderTextColor="#94A3B8"
-              />
+              {isSelf ? (
+                <TextInput
+                  style={styles.itemInput}
+                  value={fullName}
+                  onChangeText={setFullName}
+                  placeholder="Your full name"
+                  placeholderTextColor="#94A3B8"
+                />
+              ) : (
+                <Text style={styles.itemValue}>{targetUser?.fullName || 'User'}</Text>
+              )}
             </View>
           </View>
 
@@ -180,13 +243,17 @@ const ProfileScreen = ({ navigation }) => {
             <Ionicons name="information-circle-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
               <Text style={styles.itemLabel}>About</Text>
-              <TextInput
-                style={styles.itemInput}
-                value={about}
-                onChangeText={setAbout}
-                placeholder="About status"
-                placeholderTextColor="#94A3B8"
-              />
+              {isSelf ? (
+                <TextInput
+                  style={styles.itemInput}
+                  value={about}
+                  onChangeText={setAbout}
+                  placeholder="About status"
+                  placeholderTextColor="#94A3B8"
+                />
+              ) : (
+                <Text style={styles.itemValue}>{targetUser?.about || 'Hey there! I am using PulseChat.'}</Text>
+              )}
             </View>
           </View>
 
@@ -195,7 +262,9 @@ const ProfileScreen = ({ navigation }) => {
             <Ionicons name="call-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
               <Text style={styles.itemLabel}>Phone Number</Text>
-              <Text style={styles.itemValue}>{user?.mobileNumber || 'Not available'}</Text>
+              <Text style={styles.itemValue}>
+                {isSelf ? currentUser?.mobileNumber : (targetUser?.mobileNumber || 'Private')}
+              </Text>
             </View>
           </View>
 
@@ -204,7 +273,9 @@ const ProfileScreen = ({ navigation }) => {
             <Ionicons name="mail-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
               <Text style={styles.itemLabel}>Email</Text>
-              <Text style={styles.itemValue}>{user?.email || 'Not available'}</Text>
+              <Text style={styles.itemValue}>
+                {isSelf ? currentUser?.email : (targetUser?.email || 'Private')}
+              </Text>
             </View>
           </View>
 
@@ -212,37 +283,42 @@ const ProfileScreen = ({ navigation }) => {
           <View style={styles.itemRow}>
             <Ionicons name="location-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
-              <Text style={styles.itemLabel}>Location (Auto-detected)</Text>
+              <Text style={styles.itemLabel}>Location</Text>
               <Text style={styles.itemValue}>
-                {user?.address?.formattedAddress || user?.address?.city || 'Local Area'}
+                {(isSelf ? currentUser : targetUser)?.address?.formattedAddress ||
+                  (isSelf ? currentUser : targetUser)?.address?.city ||
+                  'Local Area'}
               </Text>
             </View>
           </View>
         </View>
 
-        {/* Save Button */}
-        <TouchableOpacity
-          style={styles.saveBtn}
-          onPress={handleSaveProfile}
-          disabled={saving}
-          activeOpacity={0.85}
-        >
-          {saving ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <Text style={styles.saveBtnText}>Save Profile Changes</Text>
-          )}
-        </TouchableOpacity>
+        {/* Save & Logout Buttons (Self only) */}
+        {isSelf && (
+          <>
+            <TouchableOpacity
+              style={styles.saveBtn}
+              onPress={handleSaveProfile}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              {saving ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.saveBtnText}>Save Profile Changes</Text>
+              )}
+            </TouchableOpacity>
 
-        {/* Logout Button */}
-        <TouchableOpacity
-          style={styles.logoutBtn}
-          onPress={handleLogout}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="log-out-outline" size={20} color="#EF4444" style={styles.logoutIcon} />
-          <Text style={styles.logoutBtnText}>Log Out</Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.logoutBtn}
+              onPress={handleLogout}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="log-out-outline" size={20} color="#EF4444" style={styles.logoutIcon} />
+              <Text style={styles.logoutBtnText}>Log Out</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </ScrollView>
 
       {/* Profile Photo Picker Options Modal */}
@@ -360,6 +436,58 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: theme.accent,
     marginTop: 10,
+  },
+  onlineBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E6FAF5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 10,
+  },
+  onlineDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+    marginRight: 6,
+  },
+  onlineBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0D9488',
+    letterSpacing: 0.5,
+  },
+  actionRowContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+    gap: 10,
+  },
+  actionBtnCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  actionIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  actionBtnLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0F172A',
   },
   card: {
     backgroundColor: '#FFFFFF',

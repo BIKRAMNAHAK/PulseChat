@@ -43,6 +43,18 @@ const initialState = {
 
 const chatReducer = (state = initialState, action) => {
   switch (action.type) {
+    case 'persist/REHYDRATE': {
+      if (action.payload && action.payload.chat) {
+        return {
+          ...state,
+          ...action.payload.chat,
+          callState: initialState.callState,
+          typingUsers: {},
+        };
+      }
+      return state;
+    }
+
     case SET_FRIENDS:
       return {
         ...state,
@@ -76,20 +88,24 @@ const chatReducer = (state = initialState, action) => {
       const msg = action.payload;
       const isForActiveChat =
         state.activeConversation.recipientId &&
-        (msg.sender._id === state.activeConversation.recipientId ||
-          msg.receiver._id === state.activeConversation.recipientId ||
+        (msg.sender?._id === state.activeConversation.recipientId ||
+          msg.receiver?._id === state.activeConversation.recipientId ||
           msg.sender === state.activeConversation.recipientId ||
           msg.receiver === state.activeConversation.recipientId);
 
-      const updatedMessages = isForActiveChat
-        ? [...state.activeConversation.messages, msg]
-        : state.activeConversation.messages;
+      if (!isForActiveChat) return state;
+
+      // Prevent duplicate messages with same _id
+      const alreadyExists = state.activeConversation.messages.some(
+        (m) => m._id && msg._id && m._id.toString() === msg._id.toString()
+      );
+      if (alreadyExists) return state;
 
       return {
         ...state,
         activeConversation: {
           ...state.activeConversation,
-          messages: updatedMessages,
+          messages: [...state.activeConversation.messages, msg],
         },
       };
     }

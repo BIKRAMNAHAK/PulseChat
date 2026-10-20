@@ -12,6 +12,7 @@ import {
   TextInput,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   fetchSuggestionsAction,
@@ -24,6 +25,7 @@ import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
 const DiscoverScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { suggestions, incomingRequests, sentRequests } = useSelector((state) => state.chat);
 
@@ -119,7 +121,7 @@ const DiscoverScreen = ({ navigation }) => {
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: insets.top > 0 ? insets.top + 8 : 14 }]}>
         <Text style={styles.topTitle}>Find Friends & Requests</Text>
       </View>
 

@@ -27,11 +27,13 @@ import {
   acceptRequestAction,
   sendFriendRequestAction,
 } from '../Services/Actions/chatActions';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../Services/socketService';
 import { theme, postApi } from '../Services/helper';
 import VideoCallModal from '../Components/VideoCallModal';
 
 const ChatScreen = ({ route, navigation }) => {
+  const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { recipient, group, initiateCall } = route.params || {};
   const isGroup = !!group;
@@ -58,6 +60,21 @@ const ChatScreen = ({ route, navigation }) => {
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
+  // Deduplicate and append message
+  const appendUniqueMessage = (newMsg) => {
+    if (!newMsg) return;
+    setMessages((prev) => {
+      const exists = prev.some((m) => {
+        if (m._id && newMsg._id) {
+          return m._id.toString() === newMsg._id.toString();
+        }
+        return false;
+      });
+      if (exists) return prev;
+      return [...prev, newMsg];
+    });
+  };
+
   const incomingReqFromThisRecipient = !isGroup && incomingRequests.find(
     (r) => r.sender?._id === recipient?._id || r.sender === recipient?._id
   );
@@ -83,7 +100,7 @@ const ChatScreen = ({ route, navigation }) => {
 
       const handleReceiveGroupMsg = (data) => {
         if (data.groupId === group._id) {
-          setMessages((prev) => [...prev, data.message]);
+          appendUniqueMessage(data.message);
         }
       };
 
@@ -118,7 +135,7 @@ const ChatScreen = ({ route, navigation }) => {
           newMsg.sender?._id === recipient._id ||
           newMsg.sender === recipient._id
         ) {
-          setMessages((prev) => [...prev, newMsg]);
+          appendUniqueMessage(newMsg);
           socketService.markSeen(recipient._id, user?._id);
         }
       };
@@ -183,13 +200,26 @@ const ChatScreen = ({ route, navigation }) => {
     }
   }, [recipient?._id, group?._id, user?._id, isGroup, dispatch]);
 
-  // Sync Redux active messages for 1-on-1 chat
+  // Sync Redux active messages for 1-on-1 chat with deduplication
   useEffect(() => {
     if (!isGroup && activeConversation.recipientId === recipient?._id) {
-      setMessages(activeConversation.messages);
+      if (activeConversation.messages && activeConversation.messages.length > 0) {
+        setMessages(() => {
+          const seen = new Set();
+          const unique = [];
+          for (const m of activeConversation.messages) {
+            const key = m._id ? m._id.toString() : null;
+            if (!key || !seen.has(key)) {
+              if (key) seen.add(key);
+              unique.push(m);
+            }
+          }
+          return unique;
+        });
+      }
       setCanChat(activeConversation.canChat);
     }
-  }, [activeConversation, recipient?._id, isGroup]);
+  }, [activeConversation.messages, activeConversation.recipientId, activeConversation.canChat, recipient?._id, isGroup]);
 
   // Handle typing indicator emission (1-on-1 only)
   const handleInputChange = (text) => {
@@ -232,7 +262,7 @@ const ChatScreen = ({ route, navigation }) => {
           setSending(true);
           const response = await dispatch(sendGroupMessageAction(formData, true));
           if (response?.message) {
-            setMessages((prev) => [...prev, response.message]);
+            appendUniqueMessage(response.message);
           }
         } else {
           formData.append('receiverId', recipient._id);
@@ -240,7 +270,7 @@ const ChatScreen = ({ route, navigation }) => {
           setSending(true);
           const response = await dispatch(sendMessageAction(formData, true));
           if (response?.message) {
-            setMessages((prev) => [...prev, response.message]);
+            appendUniqueMessage(response.message);
           }
         }
       }
@@ -277,7 +307,7 @@ const ChatScreen = ({ route, navigation }) => {
           })
         );
         if (res?.message) {
-          setMessages((prev) => [...prev, res.message]);
+          appendUniqueMessage(res.message);
         }
       } else {
         socketService.emitStopTyping(user?._id, recipient._id);
@@ -289,7 +319,7 @@ const ChatScreen = ({ route, navigation }) => {
           })
         );
         if (res?.message) {
-          setMessages((prev) => [...prev, res.message]);
+          appendUniqueMessage(res.message);
         }
       }
     } catch (err) {
@@ -418,7 +448,7 @@ const ChatScreen = ({ route, navigation }) => {
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* WhatsApp Chat Header */}
-      <View style={styles.chatHeader}>
+      <View style={[styles.chatHeader, { paddingTop: insets.top > 0 ? insets.top + 6 : 10 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
         </TouchableOpacity>
@@ -431,7 +461,7 @@ const ChatScreen = ({ route, navigation }) => {
             if (isGroup) {
               setGroupInfoModal(true);
             } else {
-              navigation.navigate('Profile', { userId: recipient?._id });
+              navigation.navigate('Profile', { userId: recipient?._id, profileUser: recipient });
             }
           }}
         >
@@ -574,7 +604,7 @@ const ChatScreen = ({ route, navigation }) => {
         <FlatList
           ref={flatListRef}
           data={messages}
-          keyExtractor={(item, index) => item._id || String(index)}
+          keyExtractor={(item, index) => item._id ? `${item._id}_${index}` : String(index)}
           renderItem={renderMessageItem}
           contentContainerStyle={styles.messagesList}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
@@ -594,7 +624,7 @@ const ChatScreen = ({ route, navigation }) => {
 
       {/* Bottom Input Bar */}
       {canChat ? (
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           <View style={styles.inputBar}>
             {/* Gallery Image Picker */}
             <TouchableOpacity
@@ -629,7 +659,7 @@ const ChatScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
       ) : (
-        <View style={styles.lockedBarActionContainer}>
+        <View style={[styles.lockedBarActionContainer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           {incomingReqFromThisRecipient ? (
             <View style={styles.lockedBarContent}>
               <View style={styles.lockedBarTextRow}>
