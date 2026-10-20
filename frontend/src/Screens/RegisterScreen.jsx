@@ -82,7 +82,7 @@ const RegisterScreen = ({ navigation }) => {
         email: email.trim().toLowerCase(),
         password,
         confirmPassword,
-        profilePic,
+        profilePic, 
         address: address.trim() || 'Auto-detected Location',
         latitude: locationCoords?.latitude || null,
         longitude: locationCoords?.longitude || null,
@@ -90,7 +90,7 @@ const RegisterScreen = ({ navigation }) => {
         state: locationCoords?.state || '',
         country: locationCoords?.country || 'India',
       };
-
+      console.log("payload",payload)
       const res = await dispatch(registerAction(payload));
 
       // Navigate to OTP verification screen with email and devOtp

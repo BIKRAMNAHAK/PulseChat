@@ -1,14 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 
 import ChatsScreen from '../Screens/ChatsScreen';
 import StatusScreen from '../Screens/StatusScreen';
 import DiscoverScreen from '../Screens/DiscoverScreen';
 import CallsScreen from '../Screens/CallsScreen';
+import { fetchRequestsAction } from '../Services/Actions/chatActions';
+import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
 const Tab = createBottomTabNavigator();
@@ -22,7 +24,7 @@ const ICONS = {
 
 const CustomTabBar = ({ state, descriptors, navigation }) => {
   const insets = useSafeAreaInsets();
-  const { incomingRequests } = useSelector((state) => state.chat);
+  const { incomingRequests = [] } = useSelector((state) => state.chat);
 
   return (
     <View style={[styles.bar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 8 }]}>
@@ -83,6 +85,24 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
 };
 
 const BottomTabNavigation = () => {
+  const dispatch = useDispatch();
+
+  useEffect(() => {
+    dispatch(fetchRequestsAction());
+
+    const handleReqUpdate = () => {
+      dispatch(fetchRequestsAction());
+    };
+
+    socketService.on('friend-request-received', handleReqUpdate);
+    socketService.on('friend-request-accepted', handleReqUpdate);
+
+    return () => {
+      socketService.off('friend-request-received', handleReqUpdate);
+      socketService.off('friend-request-accepted', handleReqUpdate);
+    };
+  }, [dispatch]);
+
   return (
     <Tab.Navigator
       tabBar={(props) => <CustomTabBar {...props} />}

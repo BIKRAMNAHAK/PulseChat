@@ -22,19 +22,23 @@ import {
   fetchGroupsAction,
   createGroupAction,
   updateUserStatusAction,
+  fetchRequestsAction,
+  acceptRequestAction,
+  rejectRequestAction,
 } from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
 const ChatsScreen = ({ navigation }) => {
   const dispatch = useDispatch();
-  const { friends, groups = [] } = useSelector((state) => state.chat);
+  const { friends, groups = [], incomingRequests = [] } = useSelector((state) => state.chat);
   const { user } = useSelector((state) => state.auth);
 
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'direct' | 'groups'
+  const [acceptingReqId, setAcceptingReqId] = useState(null);
 
   // Create Group Modal State
   const [createGroupModal, setCreateGroupModal] = useState(false);
@@ -46,7 +50,48 @@ const ChatsScreen = ({ navigation }) => {
   const [friendSearchQuery, setFriendSearchQuery] = useState('');
 
   const loadData = async () => {
-    await Promise.all([dispatch(fetchFriendsAction()), dispatch(fetchGroupsAction())]);
+    await Promise.all([
+      dispatch(fetchFriendsAction()),
+      dispatch(fetchGroupsAction()),
+      dispatch(fetchRequestsAction()),
+    ]);
+  };
+
+  const handleAcceptIncomingRequest = async (requestId, friend) => {
+    try {
+      setAcceptingReqId(requestId);
+      await dispatch(acceptRequestAction(requestId));
+      Alert.alert(
+        'Friend Added! 🎉',
+        `You and ${friend?.fullName || 'your friend'} are now connected! Chat unlocked.`,
+        [
+          { text: 'Later', style: 'cancel' },
+          {
+            text: 'Open Chat',
+            onPress: () => {
+              if (friend) {
+                navigation.navigate('Chat', { recipient: friend });
+              }
+            },
+          },
+        ]
+      );
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to accept friend request.');
+    } finally {
+      setAcceptingReqId(null);
+    }
+  };
+
+  const handleRejectIncomingRequest = async (requestId) => {
+    try {
+      setAcceptingReqId(requestId);
+      await dispatch(rejectRequestAction(requestId));
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to decline request.');
+    } finally {
+      setAcceptingReqId(null);
+    }
   };
 
   useEffect(() => {
@@ -75,10 +120,39 @@ const ChatsScreen = ({ navigation }) => {
       dispatch(fetchGroupsAction());
     };
 
+    const handleFriendReqReceived = (data) => {
+      dispatch(fetchRequestsAction());
+      Alert.alert(
+        'New Friend Request! 👋',
+        `${data?.sender?.fullName || 'Someone'} sent you a friend request! Accept to start chatting.`,
+        [
+          { text: 'Later', style: 'cancel' },
+          {
+            text: 'Accept Now',
+            onPress: () => {
+              if (data?.requestId) {
+                handleAcceptIncomingRequest(data.requestId, data.sender);
+              }
+            },
+          },
+        ]
+      );
+    };
+
+    const handleFriendReqAccepted = (data) => {
+      dispatch(fetchFriendsAction());
+      dispatch(fetchRequestsAction());
+      Alert.alert(
+        'Friend Request Accepted! 🎉',
+        `${data?.friendName || 'Your friend'} accepted your request. You can now chat!`
+      );
+    };
+
     socketService.on('receive-message', handleReceiveMsg);
     socketService.on('messages-seen', handleSeen);
     socketService.on('user-status-changed', handleStatusChanged);
-    socketService.on('friend-request-accepted', () => dispatch(fetchFriendsAction()));
+    socketService.on('friend-request-received', handleFriendReqReceived);
+    socketService.on('friend-request-accepted', handleFriendReqAccepted);
     socketService.on('group-created', handleGroupCreated);
     socketService.on('group-updated', handleGroupUpdated);
 
@@ -91,6 +165,8 @@ const ChatsScreen = ({ navigation }) => {
       socketService.off('receive-message', handleReceiveMsg);
       socketService.off('messages-seen', handleSeen);
       socketService.off('user-status-changed', handleStatusChanged);
+      socketService.off('friend-request-received', handleFriendReqReceived);
+      socketService.off('friend-request-accepted', handleFriendReqAccepted);
       socketService.off('group-created', handleGroupCreated);
       socketService.off('group-updated', handleGroupUpdated);
     };
@@ -474,6 +550,78 @@ const ChatsScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
+      {/* Incoming Friend Requests Banner / Action Cards */}
+      {incomingRequests.length > 0 && (
+        <View style={styles.incomingBannerContainer}>
+          <View style={styles.incomingBannerHeader}>
+            <View style={styles.incomingBannerTitleRow}>
+              <View style={styles.incomingBadgePill}>
+                <Ionicons name="person-add" size={13} color="#FFFFFF" />
+                <Text style={styles.incomingBadgeCount}>{incomingRequests.length}</Text>
+              </View>
+              <Text style={styles.incomingBannerTitle}>
+                {incomingRequests.length === 1 ? 'New Friend Request' : `Friend Requests (${incomingRequests.length})`}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => navigation.navigate('Discover')}>
+              <Text style={styles.viewAllRequestsText}>View in Discover →</Text>
+            </TouchableOpacity>
+          </View>
+
+          {incomingRequests.map((req) => (
+            <View key={`req_${req._id}`} style={styles.incomingRequestCard}>
+              <View style={styles.incomingAvatarWrap}>
+                {req.sender?.profilePic ? (
+                  <Image source={{ uri: req.sender.profilePic }} style={styles.incomingAvatar} />
+                ) : (
+                  <View style={styles.incomingAvatarPlaceholder}>
+                    <Text style={styles.incomingAvatarInitial}>
+                      {req.sender?.fullName?.charAt(0).toUpperCase() || '?'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.incomingInfoWrap}>
+                <Text style={styles.incomingSenderName} numberOfLines={1}>
+                  {req.sender?.fullName || 'User'}
+                </Text>
+                <Text style={styles.incomingSenderSub} numberOfLines={1}>
+                  {req.sender?.about || 'Wants to connect with you'}
+                </Text>
+              </View>
+
+              <View style={styles.incomingActionButtons}>
+                <TouchableOpacity
+                  style={styles.incomingAcceptBtn}
+                  activeOpacity={0.8}
+                  disabled={acceptingReqId === req._id}
+                  onPress={() => handleAcceptIncomingRequest(req._id, req.sender)}
+                >
+                  {acceptingReqId === req._id ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark" size={15} color="#FFFFFF" style={{ marginRight: 4 }} />
+                      <Text style={styles.incomingAcceptText}>Accept</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.incomingRejectBtn}
+                  activeOpacity={0.8}
+                  disabled={acceptingReqId === req._id}
+                  onPress={() => handleRejectIncomingRequest(req._id)}
+                >
+                  <Ionicons name="close" size={16} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Active Online Friends Horizontal Tray */}
       {onlineFriends.length > 0 && activeTab !== 'groups' && (
         <View style={styles.onlineTrayContainer}>
@@ -829,6 +977,123 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: '#FFFFFF',
+  },
+  incomingBannerContainer: {
+    marginHorizontal: 14,
+    marginTop: 10,
+    marginBottom: 6,
+    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#86EFAC',
+    padding: 12,
+    elevation: 2,
+  },
+  incomingBannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  incomingBannerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  incomingBadgePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginRight: 8,
+  },
+  incomingBadgeCount: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+    marginLeft: 4,
+  },
+  incomingBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#14532D',
+    letterSpacing: 0.3,
+  },
+  viewAllRequestsText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#16A34A',
+  },
+  incomingRequestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    elevation: 1,
+  },
+  incomingAvatarWrap: {
+    marginRight: 10,
+  },
+  incomingAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  incomingAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#0F2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  incomingAvatarInitial: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  incomingInfoWrap: {
+    flex: 1,
+    marginRight: 8,
+  },
+  incomingSenderName: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  incomingSenderSub: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  incomingActionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  incomingAcceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    marginRight: 6,
+    elevation: 1,
+  },
+  incomingAcceptText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  incomingRejectBtn: {
+    backgroundColor: '#F1F5F9',
+    padding: 6,
+    borderRadius: 8,
   },
   onlineTrayContainer: {
     paddingVertical: 10,

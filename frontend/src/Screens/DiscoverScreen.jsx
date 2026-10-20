@@ -20,6 +20,7 @@ import {
   acceptRequestAction,
   rejectRequestAction,
 } from '../Services/Actions/chatActions';
+import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
 const DiscoverScreen = ({ navigation }) => {
@@ -39,6 +40,18 @@ const DiscoverScreen = ({ navigation }) => {
 
   useEffect(() => {
     loadData();
+
+    const handleReqChange = () => {
+      loadData();
+    };
+
+    socketService.on('friend-request-received', handleReqChange);
+    socketService.on('friend-request-accepted', handleReqChange);
+
+    return () => {
+      socketService.off('friend-request-received', handleReqChange);
+      socketService.off('friend-request-accepted', handleReqChange);
+    };
   }, [loadData]);
 
   const onRefresh = async () => {
@@ -62,12 +75,24 @@ const DiscoverScreen = ({ navigation }) => {
     try {
       setLoadingActionId(requestId);
       await dispatch(acceptRequestAction(requestId));
-      // Navigate to chat with newly added friend!
-      if (friend) {
-        navigation.navigate('Chat', { recipient: friend });
-      }
+      await dispatch(fetchSuggestionsAction());
+      Alert.alert(
+        'Request Accepted! 🎉',
+        `You and ${friend?.fullName || 'this user'} are now friends. Chat is unlocked!`,
+        [
+          { text: 'Later', style: 'cancel' },
+          {
+            text: 'Open Chat',
+            onPress: () => {
+              if (friend) {
+                navigation.navigate('Chat', { recipient: friend });
+              }
+            },
+          },
+        ]
+      );
     } catch (e) {
-      console.warn('Accept request error:', e);
+      Alert.alert('Error', e?.message || 'Could not accept friend request.');
     } finally {
       setLoadingActionId(null);
     }
@@ -263,6 +288,14 @@ const DiscoverScreen = ({ navigation }) => {
                   >
                     <Ionicons name="checkmark" size={14} color="#FFFFFF" />
                     <Text style={styles.btnText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.rejectBtn}
+                    onPress={() => handleRejectRequest(item.requestId)}
+                    disabled={loadingActionId === item.requestId}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close" size={14} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
               ) : isPending ? (

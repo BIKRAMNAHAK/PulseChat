@@ -24,6 +24,8 @@ import {
   unfollowUserAction,
   fetchGroupMessagesAction,
   sendGroupMessageAction,
+  acceptRequestAction,
+  sendFriendRequestAction,
 } from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
 import { theme, postApi } from '../Services/helper';
@@ -35,7 +37,7 @@ const ChatScreen = ({ route, navigation }) => {
   const isGroup = !!group;
 
   const { user } = useSelector((state) => state.auth);
-  const { activeConversation } = useSelector((state) => state.chat);
+  const { activeConversation, incomingRequests = [], sentRequests = [] } = useSelector((state) => state.chat);
 
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState([]);
@@ -55,6 +57,13 @@ const ChatScreen = ({ route, navigation }) => {
 
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  const incomingReqFromThisRecipient = !isGroup && incomingRequests.find(
+    (r) => r.sender?._id === recipient?._id || r.sender === recipient?._id
+  );
+  const sentReqToThisRecipient = !isGroup && sentRequests.find(
+    (r) => r.receiver?._id === recipient?._id || r.receiver === recipient?._id
+  );
 
   // 1. Load Messages & Sync Status on Mount
   useEffect(() => {
@@ -620,11 +629,64 @@ const ChatScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
       ) : (
-        <View style={styles.lockedBar}>
-          <Ionicons name="lock-closed" size={18} color="#EF4444" style={{ marginRight: 8 }} />
-          <Text style={styles.lockedBarText}>
-            Chat is locked. You must be mutual accepted friends to chat.
-          </Text>
+        <View style={styles.lockedBarActionContainer}>
+          {incomingReqFromThisRecipient ? (
+            <View style={styles.lockedBarContent}>
+              <View style={styles.lockedBarTextRow}>
+                <Ionicons name="person-add" size={18} color="#16A34A" style={{ marginRight: 8 }} />
+                <Text style={styles.lockedBarActionTitle} numberOfLines={1}>
+                  {recipient?.fullName || 'User'} sent you a friend request!
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.lockedBarAcceptBtn}
+                activeOpacity={0.8}
+                onPress={async () => {
+                  try {
+                    await dispatch(acceptRequestAction(incomingReqFromThisRecipient._id));
+                    setCanChat(true);
+                    Alert.alert('Request Accepted! 🎉', 'You are now friends and can chat.');
+                  } catch (e) {
+                    Alert.alert('Error', e?.message || 'Failed to accept request.');
+                  }
+                }}
+              >
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.lockedBarAcceptBtnText}>Accept Request Now</Text>
+              </TouchableOpacity>
+            </View>
+          ) : sentReqToThisRecipient ? (
+            <View style={styles.lockedBarTextRowCenter}>
+              <Ionicons name="time-outline" size={18} color="#D97706" style={{ marginRight: 8 }} />
+              <Text style={styles.lockedBarPendingText}>
+                Friend request sent. Waiting for {recipient?.fullName?.split(' ')[0] || 'them'} to accept.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.lockedBarContent}>
+              <View style={styles.lockedBarTextRow}>
+                <Ionicons name="lock-closed" size={18} color="#EF4444" style={{ marginRight: 8 }} />
+                <Text style={styles.lockedBarText}>
+                  Chat is locked. Connect as friends to start chatting.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.lockedBarSendReqBtn}
+                activeOpacity={0.8}
+                onPress={async () => {
+                  try {
+                    await dispatch(sendFriendRequestAction(recipient?._id));
+                    Alert.alert('Request Sent! 🚀', `Friend request sent to ${recipient?.fullName || 'user'}.`);
+                  } catch (e) {
+                    Alert.alert('Notice', e.response?.data?.message || 'Request could not be sent.');
+                  }
+                }}
+              >
+                <Ionicons name="person-add-outline" size={15} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.lockedBarAcceptBtnText}>Send Friend Request</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       )}
 
@@ -995,6 +1057,61 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     paddingVertical: 14,
     paddingHorizontal: 16,
+  },
+  lockedBarActionContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  lockedBarContent: {
+    alignItems: 'center',
+  },
+  lockedBarTextRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  lockedBarTextRowCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  lockedBarActionTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  lockedBarAcceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  lockedBarSendReqBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.accent,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  lockedBarAcceptBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  lockedBarPendingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#B45309',
   },
   lockedBarText: {
     fontSize: 13,
