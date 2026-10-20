@@ -10,6 +10,9 @@ const createTransporter = () => {
       host: process.env.EMAIL_HOST || 'smtp.gmail.com',
       port: process.env.EMAIL_PORT ? parseInt(process.env.EMAIL_PORT) : 587,
       secure: false,
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 4000,
       auth: {
         user: emailUser,
         pass: emailPass,
@@ -60,13 +63,16 @@ const sendOTPEmail = async (toEmail, otp) => {
   }
 
   try {
-    const info = await transporter.sendMail(mailOptions);
+    const sendPromise = transporter.sendMail(mailOptions);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('SMTP timeout - port 587 unreachable')), 4000)
+    );
+    const info = await Promise.race([sendPromise, timeoutPromise]);
     console.log(`✅ OTP email sent to ${toEmail}: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err) {
-    console.error(`❌ Failed to send OTP email: ${err.message}`);
-    // Fallback in dev so testing is not blocked
-    console.log(`🔑 [DEV FALLBACK] OTP for ${toEmail}: ${otp}`);
+    console.warn(`⚠️ Failed to send OTP email: ${err.message}`);
+    console.log(`🔑 [OTP FALLBACK] OTP for ${toEmail}: ${otp}`);
     return { success: true, fallback: true, otp, error: err.message };
   }
 };

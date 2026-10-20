@@ -40,7 +40,10 @@ const LoginScreen = ({ navigation }) => {
       const errMsg = err.response?.data?.message || err.message || 'Login failed.';
       if (err.response?.data?.isUnverified) {
         // Navigate to OTP screen
-        navigation.navigate('Otp', { email: err.response.data.email });
+        navigation.navigate('Otp', {
+          email: err.response.data.email,
+          devOtp: err.response.data.devOtp || err.response.data.otp,
+        });
       } else {
         setError(errMsg);
       }

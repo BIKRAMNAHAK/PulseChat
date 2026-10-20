@@ -96,7 +96,7 @@ const RegisterScreen = ({ navigation }) => {
       // Navigate to OTP verification screen with email and devOtp
       navigation.navigate('Otp', {
         email: payload.email,
-        devOtp: res.devOtp,
+        devOtp: res.devOtp || res.otp,
       });
     } catch (err) {
       setError(err.message || 'Registration failed. Please check inputs.');

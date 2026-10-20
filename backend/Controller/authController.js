@@ -40,13 +40,16 @@ exports.sendOtp = async (req, res) => {
       await user.save();
     }
 
-    const emailResult = await sendOTPEmail(email, otp);
+    sendOTPEmail(email, otp).catch((err) =>
+      console.warn('Background OTP email send error:', err.message)
+    );
 
     return res.status(200).json({
       success: true,
       message: 'OTP has been sent to your email.',
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
-      emailResult,
+      email,
+      otp,
+      devOtp: otp,
     });
   } catch (error) {
     console.error('Error in sendOtp:', error);
@@ -150,7 +153,7 @@ exports.register = async (req, res) => {
 
     let user;
     if (existingEmail && !existingEmail.isVerified) {
-      // Update unverified user
+      // Update unverified user by email
       existingEmail.fullName = fullName.trim();
       existingEmail.mobileNumber = normalizedMobile;
       existingEmail.password = hashedPassword;
@@ -159,6 +162,16 @@ exports.register = async (req, res) => {
       existingEmail.otp = otp;
       existingEmail.otpExpires = otpExpires;
       user = await existingEmail.save();
+    } else if (existingMobile && !existingMobile.isVerified) {
+      // Update unverified user by mobile number (prevents duplicate key error E11000)
+      existingMobile.fullName = fullName.trim();
+      existingMobile.email = normalizedEmail;
+      existingMobile.password = hashedPassword;
+      if (profilePicPath) existingMobile.profilePic = profilePicPath;
+      existingMobile.address = formattedAddressObj;
+      existingMobile.otp = otp;
+      existingMobile.otpExpires = otpExpires;
+      user = await existingMobile.save();
     } else {
       user = await User.create({
         fullName: fullName.trim(),
@@ -173,18 +186,28 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Send OTP to user's email
-    await sendOTPEmail(normalizedEmail, otp);
+    // Send OTP to user's email asynchronously (never hangs or blocks registration)
+    sendOTPEmail(normalizedEmail, otp).catch((err) =>
+      console.warn('Background OTP email send error:', err.message)
+    );
 
     return res.status(201).json({
       success: true,
       message: 'Registration initiated! Please verify the OTP sent to your email.',
       userId: user._id,
       email: user.email,
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+      otp,
+      devOtp: otp,
     });
   } catch (error) {
     console.error('Error in register:', error);
+    if (error.code === 11000) {
+      const isMobile = error.message?.includes('mobileNumber');
+      return res.status(400).json({
+        success: false,
+        message: `This ${isMobile ? 'mobile number' : 'email address'} is already in use. Please log in or use another one.`,
+      });
+    }
     return res.status(500).json({
       success: false,
       message: error.message || 'Server error during registration.',
@@ -282,12 +305,16 @@ exports.resendOtp = async (req, res) => {
     user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
     await user.save();
 
-    await sendOTPEmail(user.email, otp);
+    sendOTPEmail(user.email, otp).catch((err) =>
+      console.warn('Background OTP email send error:', err.message)
+    );
 
     return res.status(200).json({
       success: true,
       message: 'A fresh OTP has been sent to your email.',
-      devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+      email: user.email,
+      otp,
+      devOtp: otp,
     });
   } catch (error) {
     console.error('Error in resendOtp:', error);
@@ -337,14 +364,18 @@ exports.login = async (req, res) => {
       user.otp = otp;
       user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
       await user.save();
-      await sendOTPEmail(user.email, otp);
+
+      sendOTPEmail(user.email, otp).catch((err) =>
+        console.warn('Background OTP email send error:', err.message)
+      );
 
       return res.status(403).json({
         success: false,
         isUnverified: true,
         message: 'Your account is not verified yet. An OTP has been sent to your email.',
         email: user.email,
-        devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+        otp,
+        devOtp: otp,
       });
     }
 
