@@ -90,14 +90,37 @@ exports.getStatuses = async (req, res) => {
     const myStatuses = activeStatuses.filter(
       (s) => s.user._id.toString() === currentUserId.toString()
     );
-    const friendsStatuses = activeStatuses.filter(
+    const friendsRaw = activeStatuses.filter(
       (s) => s.user._id.toString() !== currentUserId.toString()
     );
+
+    // Group friends statuses by user for WhatsApp-style multiple stories
+    const groupedFriendsMap = new Map();
+    friendsRaw.forEach((st) => {
+      const fId = st.user._id.toString();
+      if (!groupedFriendsMap.has(fId)) {
+        groupedFriendsMap.set(fId, {
+          user: st.user,
+          stories: [],
+          latestStory: st,
+          hasUnviewed: false,
+        });
+      }
+      const group = groupedFriendsMap.get(fId);
+      group.stories.push(st);
+      const isViewed = st.viewers && st.viewers.some((v) => v.user?.toString() === currentUserId.toString());
+      if (!isViewed) {
+        group.hasUnviewed = true;
+      }
+    });
+
+    const friendsStatuses = Array.from(groupedFriendsMap.values());
 
     return res.status(200).json({
       success: true,
       myStatuses,
       friendsStatuses,
+      rawFriendsStatuses: friendsRaw,
     });
   } catch (error) {
     console.error('Error in getStatuses:', error);
@@ -148,3 +171,26 @@ exports.viewStatus = async (req, res) => {
     });
   }
 };
+
+// 4. Delete Status (Own Status)
+exports.deleteStatus = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const { statusId } = req.params;
+
+    const status = await Status.findOneAndDelete({
+      _id: statusId,
+      user: currentUserId,
+    });
+
+    if (!status) {
+      return res.status(404).json({ success: false, message: 'Status not found or unauthorized.' });
+    }
+
+    return res.status(200).json({ success: true, message: 'Status deleted successfully.' });
+  } catch (error) {
+    console.error('Error in deleteStatus:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete status.' });
+  }
+};
+

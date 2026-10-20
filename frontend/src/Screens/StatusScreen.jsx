@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,14 +12,15 @@ import {
   ScrollView,
   Dimensions,
   Alert,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { fetchStatusesAction, uploadStatusAction } from '../Services/Actions/chatActions';
-import { theme, postApi } from '../Services/helper';
+import { theme, postApi, deleteApi } from '../Services/helper';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 const COLOR_PRESETS = [
   '#0F5132', // Emerald WhatsApp Green
@@ -35,26 +36,58 @@ const StatusScreen = () => {
   const { user } = useSelector((state) => state.auth);
   const { statuses } = useSelector((state) => state.chat);
 
-  const [activeStory, setActiveStory] = useState(null);
-  const [viewerModalVisible, setViewerModalVisible] = useState(false);
+  const myStatuses = statuses?.myStatuses || [];
+  const friendsStatuses = statuses?.friendsStatuses || [];
 
-  // Status creation modals
+  // Viewer State (Segmented WhatsApp Stories)
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerStories, setViewerStories] = useState([]);
+  const [currentStoryIndex, setCurrentStoryIndex] = useState(0);
+  const [viewerUser, setViewerUser] = useState(null);
+  const [isOwnViewer, setIsOwnViewer] = useState(false);
+  const [viewersSheetVisible, setViewersSheetVisible] = useState(false);
+
+  // Status Creation Modals
   const [mediaModalVisible, setMediaModalVisible] = useState(false);
-  const [textStatusModalVisible, setTextStatusModalVisible] = useState(false);
+  const [textModalVisible, setTextModalVisible] = useState(false);
 
-  // Media Status State
+  // Media Status Form
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [caption, setCaption] = useState('');
 
-  // Text Status State
+  // Text Status Form
   const [textStatus, setTextStatus] = useState('');
   const [selectedBgColor, setSelectedBgColor] = useState(COLOR_PRESETS[0]);
 
   const [loading, setLoading] = useState(false);
 
+  const timerRef = useRef(null);
+
   useEffect(() => {
     dispatch(fetchStatusesAction());
   }, [dispatch]);
+
+  // Handle Story Auto-advance Timer (5 seconds per story)
+  useEffect(() => {
+    if (viewerVisible && viewerStories.length > 0) {
+      const activeStory = viewerStories[currentStoryIndex];
+      // Mark as viewed on server
+      if (activeStory?._id && !isOwnViewer) {
+        postApi(`/status/view/${activeStory._id}`).catch(() => {});
+      }
+
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        if (currentStoryIndex < viewerStories.length - 1) {
+          setCurrentStoryIndex((prev) => prev + 1);
+        } else {
+          setViewerVisible(false);
+        }
+      }, 5000);
+    }
+
+    return () => clearTimeout(timerRef.current);
+  }, [viewerVisible, currentStoryIndex, viewerStories.length, isOwnViewer]);
 
   // 1. Pick Image or Video from Gallery
   const pickFromGallery = async () => {
@@ -62,7 +95,6 @@ const StatusScreen = () => {
       const res = await launchImageLibrary({
         mediaType: 'mixed',
         quality: 0.8,
-        selectionLimit: 1,
       });
 
       if (!res.didCancel && res.assets && res.assets.length > 0) {
@@ -91,7 +123,7 @@ const StatusScreen = () => {
     }
   };
 
-  // 3. Upload Gallery Media Status (Photo or Video)
+  // 3. Upload Media Status (Photo or Video)
   const handleUploadMediaStatus = async () => {
     if (!selectedAsset) return;
 
@@ -111,15 +143,15 @@ const StatusScreen = () => {
       setSelectedAsset(null);
       setCaption('');
       setMediaModalVisible(false);
-      Alert.alert('Status Posted', 'Your story has been shared for 24 hours!');
+      Alert.alert('Status Added', 'Your status has been posted! You can add multiple statuses anytime.');
     } catch (e) {
-      Alert.alert('Error', 'Failed to upload status. Please try again.');
+      Alert.alert('Error', 'Failed to upload status.');
     } finally {
       setLoading(false);
     }
   };
 
-  // 4. Upload Text Status (Like WhatsApp)
+  // 4. Upload Text Status
   const handleUploadTextStatus = async () => {
     if (!textStatus.trim()) return;
 
@@ -134,8 +166,8 @@ const StatusScreen = () => {
       await dispatch(fetchStatusesAction());
 
       setTextStatus('');
-      setTextStatusModalVisible(false);
-      Alert.alert('Status Posted', 'Your text status has been shared for 24 hours!');
+      setTextModalVisible(false);
+      Alert.alert('Status Added', 'Your text status has been posted!');
     } catch (e) {
       Alert.alert('Error', 'Failed to post text status.');
     } finally {
@@ -143,23 +175,61 @@ const StatusScreen = () => {
     }
   };
 
-  const openStoryViewer = (status) => {
-    setActiveStory(status);
-    setViewerModalVisible(true);
-    if (status._id) {
-      postApi(`/status/view/${status._id}`).catch(() => {});
+  // Open Multi-Story Viewer
+  const openStoryViewer = (stories, targetUser, isOwn = false) => {
+    if (!stories || stories.length === 0) return;
+    setViewerStories(stories);
+    setCurrentStoryIndex(0);
+    setViewerUser(targetUser);
+    setIsOwnViewer(isOwn);
+    setViewerVisible(true);
+  };
+
+  // Next / Previous Story Handlers
+  const handleNextStory = () => {
+    if (currentStoryIndex < viewerStories.length - 1) {
+      setCurrentStoryIndex((prev) => prev + 1);
+    } else {
+      setViewerVisible(false);
     }
+  };
+
+  const handlePrevStory = () => {
+    if (currentStoryIndex > 0) {
+      setCurrentStoryIndex((prev) => prev - 1);
+    }
+  };
+
+  // Delete Own Story
+  const handleDeleteCurrentStory = (storyId) => {
+    Alert.alert('Delete Status', 'Are you sure you want to delete this status update?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteApi(`/status/${storyId}`);
+            setViewerVisible(false);
+            dispatch(fetchStatusesAction());
+            Alert.alert('Deleted', 'Status removed successfully.');
+          } catch (e) {
+            Alert.alert('Error', 'Failed to delete status.');
+          }
+        },
+      },
+    ]);
   };
 
   const formatStoryTime = (dateStr) => {
     if (!dateStr) return '';
     const diff = (new Date() - new Date(dateStr)) / 1000;
     if (diff < 60) return 'Just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
-    return `${Math.floor(diff / 3600)} hours ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
   };
 
-  const myLatestStatus = statuses.myStatuses?.[0];
+  const currentStory = viewerStories[currentStoryIndex];
 
   return (
     <View style={styles.container}>
@@ -167,80 +237,125 @@ const StatusScreen = () => {
 
       {/* Header */}
       <View style={styles.topBar}>
-        <Text style={styles.topTitle}>Status & Shorts</Text>
+        <Text style={styles.topTitle}>Updates & Status</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* My Status Card */}
-        <TouchableOpacity
-          style={styles.statusRow}
-          activeOpacity={0.8}
-          onPress={() => {
-            if (myLatestStatus) {
-              openStoryViewer(myLatestStatus);
-            } else {
-              pickFromGallery();
-            }
-          }}
-        >
-          <View style={styles.avatarContainer}>
-            <View
-              style={[
-                styles.storyRing,
-                myLatestStatus ? styles.storyRingActive : styles.storyRingNone,
-              ]}
-            >
-              {user?.profilePic ? (
-                <Image source={{ uri: user.profilePic }} style={styles.avatar} />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarInitial}>{user?.fullName?.charAt(0) || 'U'}</Text>
-                </View>
-              )}
+        {/* MY STATUS SECTION */}
+        <View style={styles.myStatusCard}>
+          <TouchableOpacity
+            style={styles.myStatusMainRow}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (myStatuses.length > 0) {
+                openStoryViewer(myStatuses, user, true);
+              } else {
+                pickFromGallery();
+              }
+            }}
+          >
+            <View style={styles.avatarContainer}>
+              <View
+                style={[
+                  styles.storyRing,
+                  myStatuses.length > 0 ? styles.storyRingActive : styles.storyRingNone,
+                ]}
+              >
+                {user?.profilePic ? (
+                  <Image source={{ uri: user.profilePic }} style={styles.avatar} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text style={styles.avatarInitial}>{user?.fullName?.charAt(0) || 'U'}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Add (+) Badge */}
+              <TouchableOpacity style={styles.addBadge} onPress={pickFromGallery}>
+                <Ionicons name="add" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
 
-            {/* Plus badge */}
-            <TouchableOpacity style={styles.addBadge} onPress={pickFromGallery}>
-              <Ionicons name="add" size={16} color="#FFFFFF" />
-            </TouchableOpacity>
-          </View>
+            <View style={styles.statusTextWrap}>
+              <Text style={styles.statusUserName}>My Status</Text>
+              <Text style={styles.statusSubtext}>
+                {myStatuses.length > 0
+                  ? `${myStatuses.length} updates • Tap to view`
+                  : 'Tap to add status update'}
+              </Text>
+            </View>
 
-          <View style={styles.statusTextWrap}>
-            <Text style={styles.statusUserName}>My Status</Text>
-            <Text style={styles.statusSubtext}>
-              {myLatestStatus
-                ? `${formatStoryTime(myLatestStatus.createdAt)} • ${myLatestStatus.viewers?.length || 0} views`
-                : 'Tap to add status from gallery'}
-            </Text>
-          </View>
+            {/* Quick action buttons on My Status card */}
+            <View style={styles.myStatusActions}>
+              <TouchableOpacity style={styles.actionIconBtn} onPress={() => setTextModalVisible(true)}>
+                <Ionicons name="pencil" size={19} color={theme.accent} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionIconBtn} onPress={pickFromGallery}>
+                <Ionicons name="camera" size={20} color={theme.accent} />
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
 
-          {/* Quick Camera & Gallery shortcuts */}
-          <View style={styles.shortcutRow}>
-            <TouchableOpacity style={styles.actionIconBtn} onPress={openCamera}>
-              <Ionicons name="camera" size={20} color={theme.accent} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionIconBtn} onPress={pickFromGallery}>
-              <Ionicons name="images" size={20} color={theme.accent} />
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-
-        {/* Section divider */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent updates</Text>
+          {/* If user has multiple statuses: Show updates summary strip */}
+          {myStatuses.length > 0 && (
+            <View style={styles.myUpdatesStrip}>
+              <Text style={styles.myUpdatesStripTitle}>Your Active Stories ({myStatuses.length}):</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.myStoriesScroll}>
+                {myStatuses.map((st, idx) => (
+                  <TouchableOpacity
+                    key={st._id}
+                    style={styles.miniStoryThumb}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setViewerStories(myStatuses);
+                      setCurrentStoryIndex(idx);
+                      setViewerUser(user);
+                      setIsOwnViewer(true);
+                      setViewerVisible(true);
+                    }}
+                  >
+                    {st.mediaType === 'text' ? (
+                      <View style={[styles.miniTextThumb, { backgroundColor: st.mediaUrl || '#0F5132' }]}>
+                        <Text style={styles.miniTextThumbText} numberOfLines={2}>
+                          {st.caption}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Image source={{ uri: st.mediaUrl }} style={styles.miniImageThumb} />
+                    )}
+                    <View style={styles.miniViewersBadge}>
+                      <Ionicons name="eye-outline" size={10} color="#FFFFFF" />
+                      <Text style={styles.miniViewersCount}>{st.viewers?.length || 0}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
-        {/* Friends Statuses */}
-        {statuses.friendsStatuses?.length > 0 ? (
-          statuses.friendsStatuses.map((item) => (
+        {/* Section Divider */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recent updates from friends</Text>
+        </View>
+
+        {/* FRIENDS MULTI-STORIES LIST */}
+        {friendsStatuses.length > 0 ? (
+          friendsStatuses.map((item) => (
             <TouchableOpacity
-              key={item._id}
+              key={item.user?._id}
               style={styles.statusRow}
               activeOpacity={0.8}
-              onPress={() => openStoryViewer(item)}
+              onPress={() => openStoryViewer(item.stories, item.user, false)}
             >
               <View style={styles.avatarContainer}>
-                <View style={[styles.storyRing, styles.storyRingActive]}>
+                <View
+                  style={[
+                    styles.storyRing,
+                    styles.storyRingActive,
+                    item.stories?.length > 1 && styles.multiStoryRing,
+                  ]}
+                >
                   {item.user?.profilePic ? (
                     <Image source={{ uri: item.user.profilePic }} style={styles.avatar} />
                   ) : (
@@ -251,30 +366,40 @@ const StatusScreen = () => {
                     </View>
                   )}
                 </View>
+                {item.stories?.length > 1 && (
+                  <View style={styles.multiCountBadge}>
+                    <Text style={styles.multiCountText}>{item.stories.length}</Text>
+                  </View>
+                )}
               </View>
 
               <View style={styles.statusTextWrap}>
                 <Text style={styles.statusUserName}>{item.user?.fullName}</Text>
-                <Text style={styles.statusSubtext}>{formatStoryTime(item.createdAt)}</Text>
+                <Text style={styles.statusSubtext}>
+                  {item.stories?.length > 1 ? `${item.stories.length} updates • ` : ''}
+                  {formatStoryTime(item.latestStory?.createdAt)}
+                </Text>
               </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
             </TouchableOpacity>
           ))
         ) : (
           <View style={styles.emptyStatus}>
-            <Ionicons name="time-outline" size={36} color="#CBD5E1" />
+            <Ionicons name="time-outline" size={42} color="#CBD5E1" />
             <Text style={styles.emptyText}>No recent updates from friends</Text>
             <Text style={styles.emptySubtext}>
-              Updates posted by mutual friends will appear here for 24 hours.
+              When accepted mutual friends post photos, videos, or text stories, they will appear here for 24 hours.
             </Text>
           </View>
         )}
       </ScrollView>
 
-      {/* Floating Action Buttons (Like WhatsApp: Pencil for text, Camera for Gallery) */}
+      {/* Floating Action Buttons */}
       <View style={styles.fabColumn}>
         <TouchableOpacity
           style={styles.fabSmall}
-          onPress={() => setTextStatusModalVisible(true)}
+          onPress={() => setTextModalVisible(true)}
           activeOpacity={0.85}
         >
           <Ionicons name="pencil" size={20} color="#0F2D37" />
@@ -289,7 +414,7 @@ const StatusScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* 1. Modal: Upload Photo/Video from Gallery */}
+      {/* 1. MODAL: UPLOAD MEDIA STATUS (Photo / Video) */}
       <Modal
         visible={mediaModalVisible}
         transparent
@@ -300,7 +425,7 @@ const StatusScreen = () => {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                {selectedAsset?.type?.includes('video') ? 'Share Video Short' : 'Share Photo Story'}
+                {selectedAsset?.type?.includes('video') ? 'Share Video Status' : 'Share Photo Status'}
               </Text>
               <TouchableOpacity onPress={() => setMediaModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#64748B" />
@@ -318,7 +443,7 @@ const StatusScreen = () => {
                 {selectedAsset.type?.includes('video') && (
                   <View style={styles.videoBadge}>
                     <Ionicons name="videocam" size={16} color="#FFFFFF" />
-                    <Text style={styles.videoBadgeText}>Video Selected</Text>
+                    <Text style={styles.videoBadgeText}>Video Clip</Text>
                   </View>
                 )}
               </View>
@@ -344,22 +469,22 @@ const StatusScreen = () => {
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" size="small" />
               ) : (
-                <Text style={styles.primaryBtnText}>Share to My Status</Text>
+                <Text style={styles.primaryBtnText}>Post to Status</Text>
               )}
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
-      {/* 2. Modal: Text Status Composer (WhatsApp Style) */}
+      {/* 2. MODAL: TEXT STATUS COMPOSER */}
       <Modal
-        visible={textStatusModalVisible}
+        visible={textModalVisible}
         animationType="slide"
-        onRequestClose={() => setTextStatusModalVisible(false)}
+        onRequestClose={() => setTextModalVisible(false)}
       >
         <View style={[styles.textStatusContainer, { backgroundColor: selectedBgColor }]}>
           <View style={styles.textStatusHeader}>
-            <TouchableOpacity onPress={() => setTextStatusModalVisible(false)}>
+            <TouchableOpacity onPress={() => setTextModalVisible(false)}>
               <Ionicons name="close" size={28} color="#FFFFFF" />
             </TouchableOpacity>
 
@@ -410,69 +535,159 @@ const StatusScreen = () => {
         </View>
       </Modal>
 
-      {/* 3. Fullscreen Story Viewer Modal */}
+      {/* 3. FULLSCREEN SEGMENTED STORY VIEWER (WhatsApp-Style) */}
       <Modal
-        visible={viewerModalVisible}
+        visible={viewerVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setViewerModalVisible(false)}
+        onRequestClose={() => setViewerVisible(false)}
       >
         <View
           style={[
             styles.viewerContainer,
-            activeStory?.mediaType === 'text' && {
-              backgroundColor: activeStory.mediaUrl || '#0F5132',
+            currentStory?.mediaType === 'text' && {
+              backgroundColor: currentStory.mediaUrl || '#0F5132',
             },
           ]}
         >
-          {/* Progress bar */}
-          <View style={styles.progressBarWrap}>
-            <View style={styles.progressBar} />
+          {/* Segmented Progress Bars at Top */}
+          <View style={styles.segmentedProgressRow}>
+            {viewerStories.map((_, idx) => (
+              <View key={`seg_${idx}`} style={styles.segmentBackground}>
+                <View
+                  style={[
+                    styles.segmentFill,
+                    idx <= currentStoryIndex && styles.segmentFillActive,
+                  ]}
+                />
+              </View>
+            ))}
           </View>
 
-          {/* Viewer Top Header */}
+          {/* Viewer Header */}
           <View style={styles.viewerHeader}>
             <View style={styles.viewerUserWrap}>
               <View style={styles.viewerSmallAvatar}>
                 <Text style={styles.smallAvatarText}>
-                  {activeStory?.user?.fullName?.charAt(0) || 'U'}
+                  {viewerUser?.fullName?.charAt(0) || 'U'}
                 </Text>
               </View>
               <View style={styles.viewerNameBlock}>
-                <Text style={styles.viewerUserName}>{activeStory?.user?.fullName || 'User'}</Text>
-                <Text style={styles.viewerTime}>{formatStoryTime(activeStory?.createdAt)}</Text>
+                <Text style={styles.viewerUserName}>
+                  {isOwnViewer ? 'My Status' : viewerUser?.fullName || 'User'}
+                </Text>
+                <Text style={styles.viewerTime}>
+                  {currentStoryIndex + 1} of {viewerStories.length} •{' '}
+                  {formatStoryTime(currentStory?.createdAt)}
+                </Text>
               </View>
             </View>
 
-            <TouchableOpacity onPress={() => setViewerModalVisible(false)}>
-              <Ionicons name="close" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
+            <View style={styles.viewerHeaderRightActions}>
+              {isOwnViewer && currentStory && (
+                <TouchableOpacity
+                  style={styles.viewerDeleteBtn}
+                  onPress={() => handleDeleteCurrentStory(currentStory._id)}
+                >
+                  <Ionicons name="trash-outline" size={22} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => setViewerVisible(false)}>
+                <Ionicons name="close" size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Story Content */}
-          <View style={styles.viewerMediaContent}>
-            {activeStory?.mediaType === 'text' ? (
-              /* Text Status */
+          {/* Interactive Tap Zones: Left (Previous) & Right (Next) */}
+          <View style={styles.touchZonesContainer}>
+            <TouchableWithoutFeedback onPress={handlePrevStory}>
+              <View style={styles.leftTapZone} />
+            </TouchableWithoutFeedback>
+            <TouchableWithoutFeedback onPress={handleNextStory}>
+              <View style={styles.rightTapZone} />
+            </TouchableWithoutFeedback>
+          </View>
+
+          {/* Story Media / Text Content */}
+          <View style={styles.viewerMediaContent} pointerEvents="none">
+            {currentStory?.mediaType === 'text' ? (
               <View style={styles.fullscreenTextWrap}>
-                <Text style={styles.fullscreenText}>{activeStory.caption}</Text>
+                <Text style={styles.fullscreenText}>{currentStory.caption}</Text>
               </View>
-            ) : activeStory?.mediaUrl ? (
-              /* Photo or Video status */
+            ) : currentStory?.mediaUrl ? (
               <Image
-                source={{ uri: activeStory.mediaUrl }}
+                source={{ uri: currentStory.mediaUrl }}
                 style={styles.storyFullImage}
                 resizeMode="contain"
               />
             ) : null}
           </View>
 
-          {/* Caption */}
-          {activeStory?.caption && activeStory.mediaType !== 'text' ? (
+          {/* Story Caption */}
+          {currentStory?.caption && currentStory.mediaType !== 'text' ? (
             <View style={styles.viewerCaptionBox}>
-              <Text style={styles.viewerCaptionText}>{activeStory.caption}</Text>
+              <Text style={styles.viewerCaptionText}>{currentStory.caption}</Text>
             </View>
           ) : null}
+
+          {/* For Own Status: Viewers Count Drawer */}
+          {isOwnViewer && currentStory && (
+            <TouchableOpacity
+              style={styles.viewersCountPill}
+              onPress={() => setViewersSheetVisible(true)}
+            >
+              <Ionicons name="eye-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+              <Text style={styles.viewersCountText}>
+                {currentStory.viewers?.length || 0} views
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Viewers List Modal (For Own Story) */}
+        {isOwnViewer && (
+          <Modal
+            visible={viewersSheetVisible}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setViewersSheetVisible(false)}
+          >
+            <View style={styles.sheetOverlay}>
+              <View style={styles.sheetContent}>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>
+                    Viewed by {currentStory?.viewers?.length || 0}
+                  </Text>
+                  <TouchableOpacity onPress={() => setViewersSheetVisible(false)}>
+                    <Ionicons name="close" size={24} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={styles.sheetList}>
+                  {currentStory?.viewers && currentStory.viewers.length > 0 ? (
+                    currentStory.viewers.map((v, i) => (
+                      <View key={i} style={styles.viewerRow}>
+                        <View style={styles.viewerAvatar}>
+                          <Text style={styles.viewerAvatarText}>
+                            {v.user?.fullName?.charAt(0) || 'U'}
+                          </Text>
+                        </View>
+                        <View style={styles.viewerInfo}>
+                          <Text style={styles.viewerName}>{v.user?.fullName || 'Contact'}</Text>
+                          <Text style={styles.viewerSeenTime}>
+                            {formatStoryTime(v.viewedAt)}
+                          </Text>
+                        </View>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noViewersText}>No views yet</Text>
+                  )}
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+        )}
       </Modal>
     </View>
   );
@@ -498,7 +713,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingBottom: 90,
   },
-  statusRow: {
+  myStatusCard: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    paddingBottom: 10,
+  },
+  myStatusMainRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -516,12 +736,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  storyRingActive: {
-    borderWidth: 2.5,
-    borderColor: theme.statusUnviewed,
-  },
   storyRingNone: {
     borderWidth: 0,
+  },
+  storyRingActive: {
+    borderWidth: 2.5,
+    borderColor: '#00C49F',
+  },
+  multiStoryRing: {
+    borderStyle: 'dashed',
   },
   avatar: {
     width: 50,
@@ -554,6 +777,25 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
+  multiCountBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: theme.accent,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    paddingHorizontal: 4,
+  },
+  multiCountText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
   statusTextWrap: {
     flex: 1,
   },
@@ -561,54 +803,118 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
+    marginBottom: 2,
   },
   statusSubtext: {
     fontSize: 13,
     color: '#64748B',
-    marginTop: 2,
   },
-  shortcutRow: {
+  myStatusActions: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   actionIconBtn: {
     padding: 8,
-    marginLeft: 4,
+    marginLeft: 6,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 20,
+  },
+  myUpdatesStrip: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  myUpdatesStripTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  myStoriesScroll: {
+    flexDirection: 'row',
+  },
+  miniStoryThumb: {
+    width: 60,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 8,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#0F2D37',
+  },
+  miniImageThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  miniTextThumb: {
+    width: '100%',
+    height: '100%',
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniTextThumbText: {
+    fontSize: 8,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  miniViewersBadge: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    right: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 4,
+    paddingVertical: 1,
+  },
+  miniViewersCount: {
+    fontSize: 9,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    marginLeft: 3,
   },
   sectionHeader: {
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#F8FAFC',
-    borderTopWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: '#E2E8F0',
-    marginTop: 8,
-    marginBottom: 6,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 12.5,
     fontWeight: '700',
     color: '#64748B',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 0.6,
+    borderBottomColor: '#F1F5F9',
+  },
   emptyStatus: {
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 30,
-    marginTop: 30,
+    marginTop: 40,
   },
   emptyText: {
-    color: '#0F2D37',
     fontSize: 16,
     fontWeight: '700',
-    marginTop: 10,
+    color: '#0F2D37',
+    marginTop: 12,
+    marginBottom: 4,
   },
   emptySubtext: {
-    color: '#94A3B8',
     fontSize: 13,
+    color: '#64748B',
     textAlign: 'center',
-    marginTop: 4,
-    maxWidth: 260,
+    lineHeight: 18,
   },
   fabColumn: {
     position: 'absolute',
@@ -620,16 +926,16 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
-    elevation: 4,
+    marginBottom: 14,
+    elevation: 3,
   },
   fabBig: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: theme.accent,
     alignItems: 'center',
     justifyContent: 'center',
@@ -637,34 +943,34 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
   modalCard: {
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 20,
-    paddingBottom: 34,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 14,
+    marginBottom: 16,
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#0F2D37',
+    color: '#0F172A',
   },
   previewBox: {
-    position: 'relative',
-    height: 200,
-    borderRadius: 14,
+    width: '100%',
+    height: 220,
+    borderRadius: 12,
     overflow: 'hidden',
     marginBottom: 14,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#000',
+    position: 'relative',
   },
   previewImage: {
     width: '100%',
@@ -673,58 +979,55 @@ const styles = StyleSheet.create({
   videoBadge: {
     position: 'absolute',
     top: 10,
-    left: 10,
+    right: 10,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.7)',
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 10,
+    borderRadius: 12,
   },
   videoBadgeText: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: '700',
     marginLeft: 4,
   },
   captionWrap: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
+    backgroundColor: '#F1F5F9',
     borderRadius: 12,
     paddingHorizontal: 12,
-    height: 48,
-    marginBottom: 14,
-    justifyContent: 'center',
+    marginBottom: 16,
   },
   captionInput: {
     fontSize: 14,
     color: '#0F172A',
+    height: 44,
   },
   primaryBtn: {
     backgroundColor: theme.accent,
-    borderRadius: 12,
-    height: 48,
+    paddingVertical: 14,
+    borderRadius: 14,
     alignItems: 'center',
-    justifyContent: 'center',
-  },
-  disabledBtn: {
-    opacity: 0.6,
   },
   primaryBtnText: {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
   },
+  disabledBtn: {
+    opacity: 0.6,
+  },
   textStatusContainer: {
     flex: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 30,
     justifyContent: 'space-between',
-    padding: 24,
   },
   textStatusHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
   },
   paletteRow: {
     flexDirection: 'row',
@@ -738,7 +1041,7 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
   colorCircleActive: {
-    borderColor: '#FDE047',
+    borderColor: '#FFD700',
     transform: [{ scale: 1.2 }],
   },
   textStatusBody: {
@@ -747,14 +1050,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   largeTextInput: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
     color: '#FFFFFF',
     width: '100%',
   },
   textStatusFooter: {
     alignItems: 'flex-end',
-    marginBottom: 20,
   },
   postTextBtn: {
     width: 56,
@@ -763,32 +1065,42 @@ const styles = StyleSheet.create({
     backgroundColor: theme.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 6,
+    elevation: 4,
   },
   viewerContainer: {
     flex: 1,
     backgroundColor: '#000000',
     justifyContent: 'space-between',
   },
-  progressBarWrap: {
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-    marginHorizontal: 10,
-    marginTop: 20,
-    borderRadius: 2,
+  segmentedProgressRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingTop: 12,
+    zIndex: 10,
   },
-  progressBar: {
+  segmentBackground: {
+    flex: 1,
     height: 3,
-    backgroundColor: theme.accent,
-    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+    marginHorizontal: 2,
     borderRadius: 2,
+    overflow: 'hidden',
+  },
+  segmentFill: {
+    height: '100%',
+    width: '0%',
+  },
+  segmentFillActive: {
+    width: '100%',
+    backgroundColor: '#00C49F',
   },
   viewerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    zIndex: 10,
   },
   viewerUserWrap: {
     flexDirection: 'row',
@@ -801,22 +1113,45 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F2D37',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 10,
   },
   smallAvatarText: {
-    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '700',
+    color: '#FFFFFF',
   },
   viewerNameBlock: {
-    marginLeft: 10,
+    justifyContent: 'center',
   },
   viewerUserName: {
-    color: '#FFFFFF',
-    fontWeight: '700',
     fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   viewerTime: {
-    color: 'rgba(255,255,255,0.7)',
     fontSize: 11,
+    color: '#CBD5E1',
+  },
+  viewerHeaderRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  viewerDeleteBtn: {
+    marginRight: 14,
+    padding: 4,
+  },
+  touchZonesContainer: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: 'row',
+    zIndex: 5,
+  },
+  leftTapZone: {
+    width: '35%',
+    height: '100%',
+  },
+  rightTapZone: {
+    width: '65%',
+    height: '100%',
   },
   viewerMediaContent: {
     flex: 1,
@@ -824,31 +1159,113 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fullscreenTextWrap: {
-    padding: 30,
+    paddingHorizontal: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
   fullscreenText: {
-    fontSize: 28,
-    fontWeight: '800',
+    fontSize: 26,
+    fontWeight: '700',
     color: '#FFFFFF',
     textAlign: 'center',
-    lineHeight: 38,
+    lineHeight: 36,
   },
   storyFullImage: {
     width: width,
-    height: height * 0.7,
+    height: '80%',
   },
   viewerCaptionBox: {
-    padding: 20,
-    paddingBottom: 40,
     backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     alignItems: 'center',
+    zIndex: 10,
   },
   viewerCaptionText: {
-    color: '#FFFFFF',
     fontSize: 15,
+    color: '#FFFFFF',
     textAlign: 'center',
+  },
+  viewersCountPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 20,
+    zIndex: 10,
+  },
+  viewersCountText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  sheetContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '60%',
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  sheetTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  sheetList: {
+    maxHeight: 250,
+  },
+  viewerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 0.6,
+    borderBottomColor: '#F1F5F9',
+  },
+  viewerAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#0F2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  viewerAvatarText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  viewerInfo: {
+    flex: 1,
+  },
+  viewerName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  viewerSeenTime: {
+    fontSize: 11,
+    color: '#64748B',
+  },
+  noViewersText: {
+    textAlign: 'center',
+    color: '#94A3B8',
+    paddingVertical: 20,
   },
 });
 

@@ -51,6 +51,12 @@ app.set('io', io);
 
 // Store active users: userId -> socketId
 const activeUsers = new Map();
+app.set('activeUsers', activeUsers);
+
+// Reset stale online statuses on server start
+User.updateMany({}, { isOnline: false, socketId: null }).catch((err) =>
+  console.error('Error resetting initial user statuses:', err)
+);
 
 // Socket.io Connection & Real-time Handlers
 io.on('connection', (socket) => {
@@ -240,7 +246,17 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 5. Disconnect Handler
+// 5. Group Chat Rooms
+  socket.on('join-group', (groupId) => {
+    socket.join(`group_${groupId}`);
+    console.log(`👥 Socket ${socket.id} joined group_${groupId}`);
+  });
+
+  socket.on('leave-group', (groupId) => {
+    socket.leave(`group_${groupId}`);
+  });
+
+  // 6. Disconnect Handler
   socket.on('disconnect', async () => {
     if (socket.userId) {
       activeUsers.delete(socket.userId);
@@ -269,12 +285,22 @@ app.use('/api/connection', connectionRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/status', statusRouter);
 app.use('/api/profile', profileRouter);
+app.use('/api/group', require('./Router/groupRouter'));
+
+// Active online users endpoint
+app.get('/api/auth/online-users', (req, res) => {
+  res.status(200).json({
+    success: true,
+    onlineUserIds: Array.from(activeUsers.keys()),
+  });
+});
 
 // Root health check endpoint
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'online',
     message: 'MyChat Secure Server is running!',
+    onlineCount: activeUsers.size,
     timestamp: new Date(),
   });
 });

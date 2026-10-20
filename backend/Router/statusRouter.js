@@ -9,5 +9,6 @@ router.use(authMiddleware);
 router.post('/upload', upload.single('media'), statusController.createStatus);
 router.get('/all', statusController.getStatuses);
 router.post('/view/:statusId', statusController.viewStatus);
+router.delete('/:statusId', statusController.deleteStatus);
 
 module.exports = router;

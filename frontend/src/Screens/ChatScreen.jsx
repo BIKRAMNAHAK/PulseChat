@@ -13,21 +13,27 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  ScrollView,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import { launchImageLibrary } from 'react-native-image-picker';
 import {
   fetchMessagesAction,
   sendMessageAction,
   unfollowUserAction,
+  fetchGroupMessagesAction,
+  sendGroupMessageAction,
 } from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
-import { theme } from '../Services/helper';
+import { theme, postApi } from '../Services/helper';
 import VideoCallModal from '../Components/VideoCallModal';
 
 const ChatScreen = ({ route, navigation }) => {
   const dispatch = useDispatch();
-  const { recipient, initiateCall } = route.params || {};
+  const { recipient, group, initiateCall } = route.params || {};
+  const isGroup = !!group;
+
   const { user } = useSelector((state) => state.auth);
   const { activeConversation } = useSelector((state) => state.chat);
 
@@ -40,9 +46,10 @@ const ChatScreen = ({ route, navigation }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
+  const [groupInfoModal, setGroupInfoModal] = useState(false);
 
-  // Call Modal State
-  const [callVisible, setCallVisible] = useState(!!initiateCall);
+  // Call Modal State (1-on-1)
+  const [callVisible, setCallVisible] = useState(!!initiateCall && !isGroup);
   const [callType, setCallType] = useState(initiateCall || 'video');
   const [isIncomingCall, setIsIncomingCall] = useState(false);
 
@@ -51,126 +58,195 @@ const ChatScreen = ({ route, navigation }) => {
 
   // 1. Load Messages & Sync Status on Mount
   useEffect(() => {
-    if (!recipient?._id) return;
+    if (isGroup) {
+      // Group Chat Setup
+      socketService.joinGroup(group._id);
 
-    // Fetch conversation from server
-    dispatch(fetchMessagesAction(recipient._id))
-      .then((res) => {
-        if (res) {
-          setCanChat(res.canChat);
-          setMessages(res.messages || []);
+      dispatch(fetchGroupMessagesAction(group._id))
+        .then((res) => {
+          if (res?.messages) {
+            setMessages(res.messages);
+          }
+        })
+        .catch((err) => {
+          Alert.alert('Error', err?.message || 'Could not load group messages.');
+        });
+
+      const handleReceiveGroupMsg = (data) => {
+        if (data.groupId === group._id) {
+          setMessages((prev) => [...prev, data.message]);
         }
-      })
-      .catch((err) => {
-        if (err.response?.status === 403) {
+      };
+
+      socketService.on('receive-group-message', handleReceiveGroupMsg);
+
+      return () => {
+        socketService.off('receive-group-message', handleReceiveGroupMsg);
+        socketService.leaveGroup(group._id);
+      };
+    } else {
+      // Direct 1-on-1 Chat Setup
+      if (!recipient?._id) return;
+
+      dispatch(fetchMessagesAction(recipient._id))
+        .then((res) => {
+          if (res) {
+            setCanChat(res.canChat);
+            setMessages(res.messages || []);
+          }
+        })
+        .catch((err) => {
+          if (err.response?.status === 403) {
+            setCanChat(false);
+          }
+        });
+
+      // Mark as seen immediately
+      socketService.markSeen(recipient._id, user?._id);
+
+      const handleReceiveMsg = (newMsg) => {
+        if (
+          newMsg.sender?._id === recipient._id ||
+          newMsg.sender === recipient._id
+        ) {
+          setMessages((prev) => [...prev, newMsg]);
+          socketService.markSeen(recipient._id, user?._id);
+        }
+      };
+
+      const handleMessagesSeen = (data) => {
+        if (data.byUserId === recipient._id) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.sender === user?._id || m.sender?._id === user?._id
+                ? { ...m, status: 'seen', seenAt: data.seenAt }
+                : m
+            )
+          );
+        }
+      };
+
+      const handleUserTyping = (data) => {
+        if (data.senderId === recipient._id) {
+          setIsTyping(data.isTyping);
+        }
+      };
+
+      const handleStatusChanged = (data) => {
+        if (data.userId === recipient._id) {
+          setIsRecipientOnline(data.isOnline);
+        }
+      };
+
+      const handleUserUnfollowed = (data) => {
+        if (data.userId === recipient._id) {
           setCanChat(false);
+          Alert.alert(
+            'Chat Locked',
+            'This user has unfollowed you. Chatting is now disabled.'
+          );
         }
-      });
+      };
 
-    // Mark as seen immediately
-    socketService.markSeen(recipient._id, user?._id);
+      const handleIncomingCall = (callData) => {
+        if (callData.from === recipient._id) {
+          setCallType(callData.callType || 'video');
+          setIsIncomingCall(true);
+          setCallVisible(true);
+        }
+      };
 
-    // Socket Listeners
-    const handleReceiveMsg = (newMsg) => {
-      if (
-        newMsg.sender?._id === recipient._id ||
-        newMsg.sender === recipient._id
-      ) {
-        setMessages((prev) => [...prev, newMsg]);
-        // Mark as seen immediately since user is actively on this chat screen
-        socketService.markSeen(recipient._id, user?._id);
-      }
-    };
+      socketService.on('receive-message', handleReceiveMsg);
+      socketService.on('messages-seen', handleMessagesSeen);
+      socketService.on('user-typing', handleUserTyping);
+      socketService.on('user-status-changed', handleStatusChanged);
+      socketService.on('user-unfollowed', handleUserUnfollowed);
+      socketService.on('incoming-call', handleIncomingCall);
 
-    const handleMessagesSeen = (data) => {
-      if (data.byUserId === recipient._id) {
-        // Turns sender's ticks to double GREEN
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.sender === user?._id || m.sender?._id === user?._id
-              ? { ...m, status: 'seen', seenAt: data.seenAt }
-              : m
-          )
-        );
-      }
-    };
+      return () => {
+        socketService.off('receive-message', handleReceiveMsg);
+        socketService.off('messages-seen', handleMessagesSeen);
+        socketService.off('user-typing', handleUserTyping);
+        socketService.off('user-status-changed', handleStatusChanged);
+        socketService.off('user-unfollowed', handleUserUnfollowed);
+        socketService.off('incoming-call', handleIncomingCall);
+      };
+    }
+  }, [recipient?._id, group?._id, user?._id, isGroup, dispatch]);
 
-    const handleUserTyping = (data) => {
-      if (data.senderId === recipient._id) {
-        setIsTyping(data.isTyping);
-      }
-    };
-
-    const handleStatusChanged = (data) => {
-      if (data.userId === recipient._id) {
-        setIsRecipientOnline(data.isOnline);
-      }
-    };
-
-    const handleUserUnfollowed = (data) => {
-      if (data.userId === recipient._id) {
-        setCanChat(false);
-        Alert.alert(
-          'Chat Locked',
-          'This user has unfollowed you. Chatting is now disabled.'
-        );
-      }
-    };
-
-    // Incoming Call Listener
-    const handleIncomingCall = (callData) => {
-      if (callData.from === recipient._id) {
-        setCallType(callData.callType || 'video');
-        setIsIncomingCall(true);
-        setCallVisible(true);
-      }
-    };
-
-    socketService.on('receive-message', handleReceiveMsg);
-    socketService.on('messages-seen', handleMessagesSeen);
-    socketService.on('user-typing', handleUserTyping);
-    socketService.on('user-status-changed', handleStatusChanged);
-    socketService.on('user-unfollowed', handleUserUnfollowed);
-    socketService.on('incoming-call', handleIncomingCall);
-
-    return () => {
-      socketService.off('receive-message', handleReceiveMsg);
-      socketService.off('messages-seen', handleMessagesSeen);
-      socketService.off('user-typing', handleUserTyping);
-      socketService.off('user-status-changed', handleStatusChanged);
-      socketService.off('user-unfollowed', handleUserUnfollowed);
-      socketService.off('incoming-call', handleIncomingCall);
-    };
-  }, [recipient?._id, user?._id, dispatch]);
-
-  // Sync Redux active messages
+  // Sync Redux active messages for 1-on-1 chat
   useEffect(() => {
-    if (activeConversation.recipientId === recipient?._id) {
+    if (!isGroup && activeConversation.recipientId === recipient?._id) {
       setMessages(activeConversation.messages);
       setCanChat(activeConversation.canChat);
     }
-  }, [activeConversation, recipient?._id]);
+  }, [activeConversation, recipient?._id, isGroup]);
 
-  // Handle typing indicator emission
+  // Handle typing indicator emission (1-on-1 only)
   const handleInputChange = (text) => {
     setInputText(text);
 
-    if (text.length > 0) {
-      socketService.emitTyping(user?._id, recipient?._id, user?.fullName);
-      clearTimeout(typingTimeoutRef.current);
-      typingTimeoutRef.current = setTimeout(() => {
-        socketService.emitStopTyping(user?._id, recipient?._id);
-      }, 2000);
-    } else {
-      socketService.emitStopTyping(user?._id, recipient?._id);
+    if (!isGroup && recipient?._id) {
+      if (text.length > 0) {
+        socketService.emitTyping(user?._id, recipient._id, user?.fullName);
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+          socketService.emitStopTyping(user?._id, recipient._id);
+        }, 2000);
+      } else {
+        socketService.emitStopTyping(user?._id, recipient._id);
+      }
     }
   };
 
-  // Send Text or Image Message
-  const handleSendMessage = async (mediaUrl = '') => {
-    if (!inputText.trim() && !mediaUrl) return;
+  // Pick Image from Gallery
+  const handlePickAndSendImage = async () => {
+    try {
+      const res = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.8,
+      });
 
-    if (!canChat) {
+      if (!res.didCancel && res.assets && res.assets.length > 0) {
+        const asset = res.assets[0];
+        const formData = new FormData();
+        formData.append('media', {
+          uri: asset.uri,
+          name: asset.fileName || 'chat_image.jpg',
+          type: asset.type || 'image/jpeg',
+        });
+        formData.append('messageType', 'image');
+
+        if (isGroup) {
+          formData.append('groupId', group._id);
+          formData.append('content', inputText.trim() || 'Photo');
+          setSending(true);
+          const response = await dispatch(sendGroupMessageAction(formData, true));
+          if (response?.message) {
+            setMessages((prev) => [...prev, response.message]);
+          }
+        } else {
+          formData.append('receiverId', recipient._id);
+          formData.append('content', inputText.trim() || 'Photo');
+          setSending(true);
+          const response = await dispatch(sendMessageAction(formData, true));
+          if (response?.message) {
+            setMessages((prev) => [...prev, response.message]);
+          }
+        }
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to upload photo.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  // Send Text Message
+  const handleSendMessage = async () => {
+    if (!inputText.trim()) return;
+
+    if (!isGroup && !canChat) {
       Alert.alert(
         'Chat Locked',
         'You cannot send messages because you are not mutual friends or this user has unfollowed.'
@@ -178,30 +254,64 @@ const ChatScreen = ({ route, navigation }) => {
       return;
     }
 
-    const payload = {
-      receiverId: recipient._id,
-      content: inputText.trim(),
-      messageType: mediaUrl ? 'image' : 'text',
-      mediaUrl: mediaUrl || '',
-    };
-
+    const textToSend = inputText.trim();
     setInputText('');
-    socketService.emitStopTyping(user?._id, recipient?._id);
 
     try {
       setSending(true);
-      const res = await dispatch(sendMessageAction(payload));
-      if (res.message) {
-        setMessages((prev) => [...prev, res.message]);
+      if (isGroup) {
+        const res = await dispatch(
+          sendGroupMessageAction({
+            groupId: group._id,
+            content: textToSend,
+            messageType: 'text',
+          })
+        );
+        if (res?.message) {
+          setMessages((prev) => [...prev, res.message]);
+        }
+      } else {
+        socketService.emitStopTyping(user?._id, recipient._id);
+        const res = await dispatch(
+          sendMessageAction({
+            receiverId: recipient._id,
+            content: textToSend,
+            messageType: 'text',
+          })
+        );
+        if (res?.message) {
+          setMessages((prev) => [...prev, res.message]);
+        }
       }
     } catch (err) {
-      Alert.alert('Error', err.response?.data?.message || 'Failed to send message.');
+      Alert.alert('Error', err.response?.data?.message || err?.message || 'Failed to send message.');
     } finally {
       setSending(false);
     }
   };
 
-  // Handle Unfollow / Unfriend
+  // Leave Group
+  const handleLeaveGroup = () => {
+    setMenuVisible(false);
+    Alert.alert('Leave Group', `Are you sure you want to leave ${group?.name}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Leave Group',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await postApi('/group/leave', { groupId: group._id });
+            socketService.leaveGroup(group._id);
+            navigation.goBack();
+          } catch (e) {
+            Alert.alert('Error', 'Failed to leave group.');
+          }
+        },
+      },
+    ]);
+  };
+
+  // Handle Unfollow (1-on-1)
   const handleUnfollow = () => {
     setMenuVisible(false);
     Alert.alert(
@@ -226,10 +336,9 @@ const ChatScreen = ({ route, navigation }) => {
     );
   };
 
-  // Render Green / Grey Ticks
+  // Render Green / Grey Ticks for direct chat
   const renderReadTick = (status) => {
     if (status === 'seen') {
-      // GREEN DOUBLE TICK - exactly as requested!
       return <Ionicons name="checkmark-done" size={16} color={theme.tickSeen} style={styles.bubbleTick} />;
     } else if (status === 'delivered') {
       return <Ionicons name="checkmark-done" size={16} color={theme.tickDelivered} style={styles.bubbleTick} />;
@@ -246,6 +355,7 @@ const ChatScreen = ({ route, navigation }) => {
 
   const renderMessageItem = ({ item }) => {
     const isMine = item.sender === user?._id || item.sender?._id === user?._id;
+    const senderName = item.sender?.fullName || 'Member';
 
     return (
       <View style={[styles.messageRow, isMine ? styles.myMessageRow : styles.theirMessageRow]}>
@@ -255,6 +365,11 @@ const ChatScreen = ({ route, navigation }) => {
             isMine ? styles.myBubble : styles.theirBubble,
           ]}
         >
+          {/* In Group Chat: Show Sender Name on Left Bubble */}
+          {isGroup && !isMine && (
+            <Text style={styles.groupSenderName}>{senderName}</Text>
+          )}
+
           {/* Image Attachment (if image message) */}
           {item.mediaUrl ? (
             <TouchableOpacity
@@ -278,7 +393,7 @@ const ChatScreen = ({ route, navigation }) => {
           {/* Timestamp & Seen Tick */}
           <View style={styles.bubbleFooter}>
             <Text style={styles.bubbleTime}>{formatMessageTime(item.createdAt)}</Text>
-            {isMine && renderReadTick(item.status)}
+            {isMine && !isGroup && renderReadTick(item.status)}
           </View>
         </View>
       </View>
@@ -299,62 +414,95 @@ const ChatScreen = ({ route, navigation }) => {
           <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
         </TouchableOpacity>
 
-        {/* Avatar & Online status */}
+        {/* Avatar & Online status or Group info */}
         <TouchableOpacity
           style={styles.headerInfo}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('Profile', { userId: recipient?._id })}
+          onPress={() => {
+            if (isGroup) {
+              setGroupInfoModal(true);
+            } else {
+              navigation.navigate('Profile', { userId: recipient?._id });
+            }
+          }}
         >
           <View style={styles.headerAvatarWrap}>
-            {recipient?.profilePic ? (
+            {isGroup ? (
+              group?.groupPic ? (
+                <Image source={{ uri: group.groupPic }} style={styles.headerAvatar} />
+              ) : (
+                <View style={[styles.headerPlaceholder, { backgroundColor: '#0B2228' }]}>
+                  <Ionicons name="people" size={22} color={theme.accent} />
+                </View>
+              )
+            ) : recipient?.profilePic ? (
               <Image source={{ uri: recipient.profilePic }} style={styles.headerAvatar} />
             ) : (
               <View style={styles.headerPlaceholder}>
-                <Text style={styles.headerInitial}>
-                  {recipient?.fullName?.charAt(0) || 'U'}
-                </Text>
+                <Text style={styles.headerInitial}>{recipient?.fullName?.charAt(0) || 'U'}</Text>
               </View>
             )}
-            {isRecipientOnline && <View style={styles.headerOnlineDot} />}
+            {!isGroup && isRecipientOnline && <View style={styles.headerOnlineDot} />}
           </View>
 
           <View style={styles.headerTextWrap}>
             <Text style={styles.headerName} numberOfLines={1}>
-              {recipient?.fullName}
+              {isGroup ? group?.name : recipient?.fullName}
             </Text>
-            <Text style={styles.headerStatus} numberOfLines={1}>
-              {isTyping
-                ? 'typing...'
-                : isRecipientOnline
-                ? 'online'
-                : 'offline'}
-            </Text>
+            {isGroup ? (
+              <Text style={styles.headerGroupSubtitle} numberOfLines={1}>
+                {group?.members?.length || 0} participants
+              </Text>
+            ) : (
+              <Text
+                style={[
+                  styles.headerStatus,
+                  isRecipientOnline && styles.headerStatusOnline,
+                ]}
+                numberOfLines={1}
+              >
+                {isTyping ? 'typing...' : isRecipientOnline ? 'Online' : 'Offline'}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
 
-        {/* Video Call & Audio Call & Options */}
+        {/* Action Buttons */}
         <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => {
-              setCallType('video');
-              setIsIncomingCall(false);
-              setCallVisible(true);
-            }}
-          >
-            <Ionicons name="videocam" size={22} color="#FFFFFF" />
-          </TouchableOpacity>
+          {!isGroup && (
+            <>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => {
+                  setCallType('video');
+                  setIsIncomingCall(false);
+                  setCallVisible(true);
+                }}
+              >
+                <Ionicons name="videocam" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => {
-              setCallType('audio');
-              setIsIncomingCall(false);
-              setCallVisible(true);
-            }}
-          >
-            <Ionicons name="call" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.actionBtn}
+                onPress={() => {
+                  setCallType('audio');
+                  setIsIncomingCall(false);
+                  setCallVisible(true);
+                }}
+              >
+                <Ionicons name="call" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </>
+          )}
+
+          {isGroup && (
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => setGroupInfoModal(true)}
+            >
+              <Ionicons name="information-circle-outline" size={23} color="#FFFFFF" />
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={styles.actionBtn}
@@ -365,7 +513,7 @@ const ChatScreen = ({ route, navigation }) => {
         </View>
       </View>
 
-      {/* WhatsApp Options Menu Modal */}
+      {/* Options Menu Modal */}
       {menuVisible && (
         <View style={styles.menuOverlay}>
           <TouchableOpacity
@@ -373,20 +521,41 @@ const ChatScreen = ({ route, navigation }) => {
             onPress={() => setMenuVisible(false)}
           />
           <View style={styles.menuDropdown}>
-            <TouchableOpacity style={styles.menuItem} onPress={handleUnfollow}>
-              <Ionicons name="person-remove-outline" size={18} color="#EF4444" />
-              <Text style={styles.menuItemTextDanger}>Unfollow Contact</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => {
-                setMenuVisible(false);
-                setMessages([]);
-              }}
-            >
-              <Ionicons name="trash-outline" size={18} color="#64748B" />
-              <Text style={styles.menuItemText}>Clear Chat</Text>
-            </TouchableOpacity>
+            {isGroup ? (
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    setGroupInfoModal(true);
+                  }}
+                >
+                  <Ionicons name="people-outline" size={18} color="#0F172A" />
+                  <Text style={styles.menuItemText}>Group Info</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuItem} onPress={handleLeaveGroup}>
+                  <Ionicons name="exit-outline" size={18} color="#EF4444" />
+                  <Text style={styles.menuItemTextDanger}>Leave Group</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity style={styles.menuItem} onPress={handleUnfollow}>
+                  <Ionicons name="person-remove-outline" size={18} color="#EF4444" />
+                  <Text style={styles.menuItemTextDanger}>Unfollow Contact</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setMenuVisible(false);
+                    setMessages([]);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#64748B" />
+                  <Text style={styles.menuItemText}>Clear Chat</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
         </View>
       )}
@@ -405,27 +574,25 @@ const ChatScreen = ({ route, navigation }) => {
             <View style={styles.encryptedBanner}>
               <Ionicons name="lock-closed" size={12} color="#64748B" />
               <Text style={styles.encryptedText}>
-                Messages and calls are end-to-end encrypted and restricted to accepted friends.
+                {isGroup
+                  ? 'Group messages are end-to-end encrypted among participants.'
+                  : 'Messages and calls are end-to-end encrypted and restricted to accepted friends.'}
               </Text>
             </View>
           }
         />
       </View>
 
-      {/* Bottom Bar: Enabled if friends, LOCKED if unfollowed */}
+      {/* Bottom Input Bar */}
       {canChat ? (
         <View style={styles.inputContainer}>
           <View style={styles.inputBar}>
-            {/* Quick image sample attachment */}
+            {/* Gallery Image Picker */}
             <TouchableOpacity
               style={styles.attachBtn}
-              onPress={() =>
-                handleSendMessage(
-                  'https://images.unsplash.com/photo-1579202673506-ca3ce28943ef?w=600'
-                )
-              }
+              onPress={handlePickAndSendImage}
             >
-              <Ionicons name="image-outline" size={22} color={theme.accent} />
+              <Ionicons name="camera-outline" size={22} color={theme.accent} />
             </TouchableOpacity>
 
             <TextInput
@@ -438,54 +605,39 @@ const ChatScreen = ({ route, navigation }) => {
             />
           </View>
 
-          {/* Send / Mic button */}
+          {/* Send Button */}
           <TouchableOpacity
             style={styles.sendBtn}
-            onPress={() => handleSendMessage()}
+            onPress={handleSendMessage}
             disabled={sending || !inputText.trim()}
             activeOpacity={0.8}
           >
             {sending ? (
               <ActivityIndicator color="#FFFFFF" size="small" />
             ) : (
-              <Ionicons
-                name={inputText.trim() ? 'send' : 'mic'}
-                size={20}
-                color="#FFFFFF"
-                style={inputText.trim() ? { marginLeft: 2 } : {}}
-              />
+              <Ionicons name="send" size={20} color="#FFFFFF" />
             )}
           </TouchableOpacity>
         </View>
       ) : (
-        /* Chat Locked Banner (When Unfollowed) */
-        <View style={styles.unfollowedBanner}>
-          <Ionicons name="lock-closed-outline" size={20} color="#DC2626" />
-          <Text style={styles.unfollowedText}>
-            Chatting is locked. You can only chat after sending and accepting a friend request.
+        <View style={styles.lockedBar}>
+          <Ionicons name="lock-closed" size={18} color="#EF4444" style={{ marginRight: 8 }} />
+          <Text style={styles.lockedBarText}>
+            Chat is locked. You must be mutual accepted friends to chat.
           </Text>
         </View>
       )}
 
-      {/* Video / Audio Call Modal */}
-      <VideoCallModal
-        visible={callVisible}
-        callType={callType}
-        isIncoming={isIncomingCall}
-        targetUser={recipient}
-        currentUser={user}
-        onClose={() => setCallVisible(false)}
-      />
-
-      {/* Image Preview Modal */}
+      {/* Fullscreen Image Preview Modal */}
       <Modal
         visible={imageModalVisible}
         transparent
+        animationType="fade"
         onRequestClose={() => setImageModalVisible(false)}
       >
-        <View style={styles.imageViewerBackdrop}>
+        <View style={styles.imageModalBg}>
           <TouchableOpacity
-            style={styles.closeImageBtn}
+            style={styles.imageModalClose}
             onPress={() => setImageModalVisible(false)}
           >
             <Ionicons name="close" size={28} color="#FFFFFF" />
@@ -493,12 +645,97 @@ const ChatScreen = ({ route, navigation }) => {
           {selectedImageUrl ? (
             <Image
               source={{ uri: selectedImageUrl }}
-              style={styles.fullPreviewImg}
+              style={styles.fullImage}
               resizeMode="contain"
             />
           ) : null}
         </View>
       </Modal>
+
+      {/* Group Info Modal */}
+      {isGroup && (
+        <Modal
+          visible={groupInfoModal}
+          animationType="slide"
+          onRequestClose={() => setGroupInfoModal(false)}
+        >
+          <View style={styles.groupModalContainer}>
+            <View style={styles.groupModalHeader}>
+              <TouchableOpacity onPress={() => setGroupInfoModal(false)}>
+                <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+              </TouchableOpacity>
+              <Text style={styles.groupModalTitle}>Group Info</Text>
+              <View style={{ width: 24 }} />
+            </View>
+
+            <ScrollView contentContainerStyle={styles.groupModalContent}>
+              <View style={styles.groupModalAvatarWrap}>
+                {group.groupPic ? (
+                  <Image source={{ uri: group.groupPic }} style={styles.groupModalAvatar} />
+                ) : (
+                  <View style={styles.groupModalAvatarPlaceholder}>
+                    <Ionicons name="people" size={48} color={theme.accent} />
+                  </View>
+                )}
+                <Text style={styles.groupModalName}>{group.name}</Text>
+                <Text style={styles.groupModalSubtitle}>
+                  Group • {group.members?.length || 0} participants
+                </Text>
+                {group.description ? (
+                  <Text style={styles.groupModalDesc}>{group.description}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.groupMembersSection}>
+                <Text style={styles.groupMembersTitle}>PARTICIPANTS</Text>
+                {group.members?.map((member) => (
+                  <View key={member._id} style={styles.memberRow}>
+                    <View style={styles.memberAvatarWrap}>
+                      {member.profilePic ? (
+                        <Image source={{ uri: member.profilePic }} style={styles.memberAvatar} />
+                      ) : (
+                        <View style={styles.memberAvatarPlaceholder}>
+                          <Text style={styles.memberAvatarInitial}>{member.fullName?.charAt(0)}</Text>
+                        </View>
+                      )}
+                      {member.isOnline && <View style={styles.onlineDot} />}
+                    </View>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName}>
+                        {member.fullName} {member._id === user?._id ? '(You)' : ''}
+                      </Text>
+                      <Text style={styles.memberStatus}>
+                        {member.isOnline ? 'Online' : 'Offline'}
+                      </Text>
+                    </View>
+                    {group.admin === member._id || group.admin?._id === member._id ? (
+                      <View style={styles.adminBadge}>
+                        <Text style={styles.adminBadgeText}>Group Admin</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity style={styles.leaveGroupBtn} onPress={handleLeaveGroup}>
+                <Ionicons name="exit-outline" size={20} color="#DC2626" style={{ marginRight: 8 }} />
+                <Text style={styles.leaveGroupBtnText}>Exit Group</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </Modal>
+      )}
+
+      {/* Video / Audio WebRTC Call Modal (1-on-1 only) */}
+      {!isGroup && recipient && (
+        <VideoCallModal
+          visible={callVisible}
+          callType={callType}
+          recipient={recipient}
+          isIncoming={isIncomingCall}
+          onClose={() => setCallVisible(false)}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 };
@@ -506,24 +743,24 @@ const ChatScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F2D37',
+    backgroundColor: '#0B141B',
   },
   chatHeader: {
     backgroundColor: theme.primary,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 10,
     elevation: 4,
   },
   backBtn: {
-    padding: 6,
-    marginRight: 4,
+    padding: 8,
   },
   headerInfo: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    marginLeft: 4,
   },
   headerAvatarWrap: {
     position: 'relative',
@@ -538,14 +775,14 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#07161A',
+    backgroundColor: '#0F2D37',
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerInitial: {
-    fontSize: 17,
-    fontWeight: '700',
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
   headerOnlineDot: {
     position: 'absolute',
@@ -554,8 +791,8 @@ const styles = StyleSheet.create({
     width: 11,
     height: 11,
     borderRadius: 5.5,
-    backgroundColor: theme.onlineBadge,
-    borderWidth: 1.5,
+    backgroundColor: '#00C49F',
+    borderWidth: 2,
     borderColor: '#FFFFFF',
   },
   headerTextWrap: {
@@ -567,9 +804,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   headerStatus: {
-    fontSize: 11.5,
+    fontSize: 12,
+    color: '#CBD5E1',
+  },
+  headerStatusOnline: {
     color: '#00C49F',
-    marginTop: 1,
+    fontWeight: '700',
+  },
+  headerGroupSubtitle: {
+    fontSize: 12,
+    color: '#94A3B8',
   },
   headerActions: {
     flexDirection: 'row',
@@ -577,77 +821,78 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     padding: 8,
-    marginLeft: 6,
+    marginLeft: 4,
   },
   menuOverlay: {
     position: 'absolute',
     top: 55,
-    right: 10,
+    right: 12,
     zIndex: 999,
   },
   menuBackdrop: {
     position: 'absolute',
-    top: -100,
+    top: -60,
     left: -400,
-    right: -100,
+    right: -20,
     bottom: -1000,
   },
   menuDropdown: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    minWidth: 180,
+    borderRadius: 8,
     paddingVertical: 6,
+    width: 170,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   menuItemText: {
+    marginLeft: 10,
     fontSize: 14,
     color: '#0F172A',
-    marginLeft: 10,
   },
   menuItemTextDanger: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#EF4444',
     marginLeft: 10,
+    fontSize: 14,
+    color: '#EF4444',
+    fontWeight: '600',
   },
   wallpaperBg: {
     flex: 1,
     backgroundColor: '#EFEAE2',
   },
   messagesList: {
-    padding: 14,
-    paddingBottom: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   encryptedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FDE68A',
+    justifyContent: 'center',
+    backgroundColor: '#FEF3C7',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: 8,
-    marginBottom: 16,
-    alignSelf: 'center',
-    maxWidth: '90%',
+    marginVertical: 10,
+    marginHorizontal: 16,
   },
   encryptedText: {
-    fontSize: 11.5,
-    color: '#78350F',
+    fontSize: 11,
+    color: '#92400E',
     marginLeft: 6,
     textAlign: 'center',
+    flex: 1,
   },
   messageRow: {
-    marginVertical: 3,
     flexDirection: 'row',
+    marginVertical: 4,
   },
   myMessageRow: {
     justifyContent: 'flex-end',
@@ -657,31 +902,37 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '78%',
-    borderRadius: 14,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
+    borderRadius: 14,
     elevation: 1,
   },
   myBubble: {
-    backgroundColor: theme.senderBubble,
+    backgroundColor: theme.outgoingBubble,
     borderTopRightRadius: 2,
   },
   theirBubble: {
-    backgroundColor: theme.receiverBubble,
+    backgroundColor: theme.incomingBubble,
     borderTopLeftRadius: 2,
+  },
+  groupSenderName: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0D9488',
+    marginBottom: 2,
   },
   bubbleImage: {
     width: 220,
-    height: 160,
-    borderRadius: 10,
+    height: 180,
+    borderRadius: 8,
     marginBottom: 4,
   },
   messageText: {
-    fontSize: 14.5,
+    fontSize: 15,
     lineHeight: 20,
   },
   myText: {
-    color: '#0F2D37',
+    color: '#0F172A',
   },
   theirText: {
     color: '#0F172A',
@@ -693,18 +944,19 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   bubbleTime: {
-    fontSize: 10,
+    fontSize: 10.5,
     color: '#64748B',
+    marginRight: 4,
   },
   bubbleTick: {
-    marginLeft: 4,
+    marginLeft: 2,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingVertical: 8,
-    backgroundColor: 'transparent',
+    paddingVertical: 6,
+    backgroundColor: '#F1F5F9',
   },
   inputBar: {
     flex: 1,
@@ -713,9 +965,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     paddingHorizontal: 12,
-    elevation: 2,
-    minHeight: 46,
-    maxHeight: 100,
+    paddingVertical: Platform.OS === 'ios' ? 8 : 4,
+    marginRight: 6,
+    elevation: 1,
   },
   attachBtn: {
     padding: 6,
@@ -723,52 +975,198 @@ const styles = StyleSheet.create({
   },
   chatInput: {
     flex: 1,
-    fontSize: 14.5,
+    fontSize: 15,
     color: '#0F172A',
-    paddingVertical: 8,
+    maxHeight: 100,
   },
   sendBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: theme.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 6,
-    elevation: 3,
+    elevation: 2,
   },
-  unfollowedBanner: {
+  lockedBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderTopWidth: 1,
-    borderTopColor: '#FECACA',
-    paddingHorizontal: 16,
+    justifyContent: 'center',
+    backgroundColor: '#FEE2E2',
     paddingVertical: 14,
+    paddingHorizontal: 16,
   },
-  unfollowedText: {
-    color: '#DC2626',
+  lockedBarText: {
     fontSize: 13,
+    color: '#DC2626',
     fontWeight: '600',
-    marginLeft: 10,
-    flex: 1,
+    textAlign: 'center',
   },
-  imageViewerBackdrop: {
+  imageModalBg: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: 'rgba(0,0,0,0.92)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  closeImageBtn: {
+  imageModalClose: {
     position: 'absolute',
     top: 40,
     right: 20,
     zIndex: 10,
     padding: 8,
   },
-  fullPreviewImg: {
-    width: '100%',
-    height: '80%',
+  fullImage: {
+    width: '94%',
+    height: '75%',
+  },
+  groupModalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  groupModalHeader: {
+    backgroundColor: theme.primary,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  groupModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  groupModalContent: {
+    paddingBottom: 40,
+  },
+  groupModalAvatarWrap: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  groupModalAvatar: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    marginBottom: 12,
+  },
+  groupModalAvatarPlaceholder: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#0F2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  groupModalName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  groupModalSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  groupModalDesc: {
+    fontSize: 13.5,
+    color: '#475569',
+    marginTop: 8,
+    paddingHorizontal: 20,
+    textAlign: 'center',
+  },
+  groupMembersSection: {
+    paddingTop: 16,
+  },
+  groupMembersTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#64748B',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    letterSpacing: 0.5,
+  },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 0.6,
+    borderBottomColor: '#F1F5F9',
+  },
+  memberAvatarWrap: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  memberAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  memberAvatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#0F2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  memberAvatarInitial: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#00C49F',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  memberInfo: {
+    flex: 1,
+  },
+  memberName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  memberStatus: {
+    fontSize: 12,
+    color: '#64748B',
+  },
+  adminBadge: {
+    backgroundColor: '#E6FAF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  adminBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0D9488',
+  },
+  leaveGroupBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 16,
+    marginTop: 24,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#FEE2E2',
+  },
+  leaveGroupBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#DC2626',
   },
 });
 

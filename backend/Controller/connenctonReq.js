@@ -37,10 +37,13 @@ exports.getSuggestions = async (req, res) => {
       .limit(50)
       .sort({ createdAt: -1 });
 
+    const activeUsers = req.app.get('activeUsers');
     const suggestions = users.map((u) => {
       const conn = connectionMap.get(u._id.toString());
+      const isOnline = activeUsers ? activeUsers.has(u._id.toString()) : !!u.isOnline;
       return {
         ...u.toObject(),
+        isOnline,
         connectionStatus: conn ? conn.status : 'none',
         requestId: conn ? conn.requestId : null,
       };
@@ -354,13 +357,16 @@ exports.getFriendsList = async (req, res) => {
           status: { $ne: 'seen' },
         });
 
+        const activeUsers = req.app.get('activeUsers');
+        const isUserOnline = activeUsers ? activeUsers.has(friend._id.toString()) : !!friend.isOnline;
+
         return {
           _id: friend._id,
           fullName: friend.fullName,
           mobileNumber: friend.mobileNumber,
           profilePic: friend.profilePic,
           about: friend.about,
-          isOnline: friend.isOnline,
+          isOnline: isUserOnline,
           lastSeen: friend.lastSeen,
           connectionId: conn._id,
           lastMessage: lastMessage

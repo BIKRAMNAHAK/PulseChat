@@ -107,6 +107,19 @@ class SocketService {
     }
   }
 
+  // Group Rooms
+  joinGroup(groupId) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('join-group', groupId);
+    }
+  }
+
+  leaveGroup(groupId) {
+    if (this.socket && this.socket.connected) {
+      this.socket.emit('leave-group', groupId);
+    }
+  }
+
   // Generic Event Listener registration
   on(event, callback) {
     if (this.socket) {

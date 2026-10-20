@@ -9,11 +9,15 @@ import {
   USER_UNFOLLOWED,
   SET_STATUSES,
   SET_CALL_STATE,
+  SET_GROUPS,
+  ADD_GROUP,
+  UPDATE_GROUP_LAST_MESSAGE,
 } from '../Actions/chatActions';
 import { LOGOUT } from '../Actions/authActions';
 
 const initialState = {
   friends: [],
+  groups: [],
   suggestions: [],
   incomingRequests: [],
   sentRequests: [],
@@ -152,6 +156,32 @@ const chatReducer = (state = initialState, action) => {
           ...action.payload,
         },
       };
+
+    case SET_GROUPS:
+      return {
+        ...state,
+        groups: action.payload || [],
+      };
+
+    case ADD_GROUP:
+      return {
+        ...state,
+        groups: [action.payload, ...state.groups.filter((g) => g._id !== action.payload._id)],
+      };
+
+    case UPDATE_GROUP_LAST_MESSAGE: {
+      const { groupId, lastMessage } = action.payload;
+      const updatedGroups = state.groups.map((grp) => {
+        if (grp._id === groupId) {
+          return { ...grp, lastMessage };
+        }
+        return grp;
+      });
+      return {
+        ...state,
+        groups: updatedGroups,
+      };
+    }
 
     case LOGOUT:
       return initialState;

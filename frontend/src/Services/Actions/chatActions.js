@@ -11,6 +11,9 @@ export const UPDATE_USER_STATUS = 'UPDATE_USER_STATUS';
 export const USER_UNFOLLOWED = 'USER_UNFOLLOWED';
 export const SET_STATUSES = 'SET_STATUSES';
 export const SET_CALL_STATE = 'SET_CALL_STATE';
+export const SET_GROUPS = 'SET_GROUPS';
+export const ADD_GROUP = 'ADD_GROUP';
+export const UPDATE_GROUP_LAST_MESSAGE = 'UPDATE_GROUP_LAST_MESSAGE';
 
 // 1. Fetch Friends List (Chat screen list)
 export const fetchFriendsAction = () => async (dispatch) => {
@@ -187,3 +190,60 @@ export const setCallStateAction = (callData) => ({
   type: SET_CALL_STATE,
   payload: callData,
 });
+
+// 14. Real-time User Status Action
+export const updateUserStatusAction = (payload) => ({
+  type: UPDATE_USER_STATUS,
+  payload,
+});
+
+// 15. Fetch Groups Action
+export const fetchGroupsAction = () => async (dispatch) => {
+  try {
+    const res = await getApi('/group/my-groups');
+    if (res.success) {
+      dispatch({ type: SET_GROUPS, payload: res.groups });
+    }
+    return res;
+  } catch (error) {
+    console.error('fetchGroupsAction error:', error);
+  }
+};
+
+// 16. Create Group Action
+export const createGroupAction = (formData) => async (dispatch) => {
+  try {
+    const res = await postApi('/group/create', formData, true);
+    if (res.success && res.group) {
+      dispatch({ type: ADD_GROUP, payload: res.group });
+      socketService.joinGroup(res.group._id);
+    }
+    return res;
+  } catch (error) {
+    console.error('createGroupAction error:', error);
+    throw error;
+  }
+};
+
+// 17. Fetch Group Messages Action
+export const fetchGroupMessagesAction = (groupId) => async (dispatch) => {
+  try {
+    const res = await getApi(`/group/messages/${groupId}`);
+    return res;
+  } catch (error) {
+    console.error('fetchGroupMessagesAction error:', error);
+    throw error;
+  }
+};
+
+// 18. Send Group Message Action
+export const sendGroupMessageAction = (formData, isMultipart = false) => async (dispatch) => {
+  try {
+    const res = await postApi('/group/send', formData, isMultipart);
+    return res;
+  } catch (error) {
+    console.error('sendGroupMessageAction error:', error);
+    throw error;
+  }
+};
+

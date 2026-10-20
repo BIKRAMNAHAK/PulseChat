@@ -9,27 +9,51 @@ import {
   RefreshControl,
   StatusBar,
   TextInput,
+  Modal,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { fetchFriendsAction } from '../Services/Actions/chatActions';
+import { launchImageLibrary } from 'react-native-image-picker';
+import {
+  fetchFriendsAction,
+  fetchGroupsAction,
+  createGroupAction,
+  updateUserStatusAction,
+} from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
 const ChatsScreen = ({ navigation }) => {
   const dispatch = useDispatch();
-  const { friends } = useSelector((state) => state.chat);
+  const { friends, groups = [] } = useSelector((state) => state.chat);
   const { user } = useSelector((state) => state.auth);
 
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [activeTab, setActiveTab] = useState('all'); // 'all' | 'direct' | 'groups'
+
+  // Create Group Modal State
+  const [createGroupModal, setCreateGroupModal] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupDesc, setGroupDesc] = useState('');
+  const [selectedFriends, setSelectedFriends] = useState([]);
+  const [groupPicAsset, setGroupPicAsset] = useState(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [friendSearchQuery, setFriendSearchQuery] = useState('');
+
+  const loadData = async () => {
+    await Promise.all([dispatch(fetchFriendsAction()), dispatch(fetchGroupsAction())]);
+  };
 
   useEffect(() => {
-    dispatch(fetchFriendsAction());
+    loadData();
 
     // Listen to real-time events on socket
-    const handleReceiveMsg = (newMsg) => {
+    const handleReceiveMsg = () => {
       dispatch(fetchFriendsAction());
     };
 
@@ -37,43 +61,115 @@ const ChatsScreen = ({ navigation }) => {
       dispatch(fetchFriendsAction());
     };
 
-    const handleStatusChanged = () => {
+    const handleStatusChanged = (data) => {
+      dispatch(updateUserStatusAction(data));
       dispatch(fetchFriendsAction());
+    };
+
+    const handleGroupCreated = (newGroup) => {
+      dispatch(fetchGroupsAction());
+      socketService.joinGroup(newGroup._id);
+    };
+
+    const handleGroupUpdated = () => {
+      dispatch(fetchGroupsAction());
     };
 
     socketService.on('receive-message', handleReceiveMsg);
     socketService.on('messages-seen', handleSeen);
     socketService.on('user-status-changed', handleStatusChanged);
     socketService.on('friend-request-accepted', () => dispatch(fetchFriendsAction()));
+    socketService.on('group-created', handleGroupCreated);
+    socketService.on('group-updated', handleGroupUpdated);
+
+    // Join all existing groups
+    if (groups && groups.length > 0) {
+      groups.forEach((g) => socketService.joinGroup(g._id));
+    }
 
     return () => {
       socketService.off('receive-message', handleReceiveMsg);
       socketService.off('messages-seen', handleSeen);
       socketService.off('user-status-changed', handleStatusChanged);
+      socketService.off('group-created', handleGroupCreated);
+      socketService.off('group-updated', handleGroupUpdated);
     };
   }, [dispatch]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await dispatch(fetchFriendsAction());
+    await loadData();
     setRefreshing(false);
   };
 
-  const filteredFriends = friends.filter((f) =>
-    f.fullName?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const renderTick = (status, isMine) => {
-    if (!isMine) return null;
-    if (status === 'seen') {
-      return <Ionicons name="checkmark-done" size={16} color={theme.tickSeen} style={styles.tick} />;
-    } else if (status === 'delivered') {
-      return <Ionicons name="checkmark-done" size={16} color={theme.tickDelivered} style={styles.tick} />;
-    } else {
-      return <Ionicons name="checkmark" size={16} color={theme.tickSent} style={styles.tick} />;
+  // Group Creation Image Picker
+  const pickGroupImage = async () => {
+    try {
+      const res = await launchImageLibrary({
+        mediaType: 'photo',
+        quality: 0.8,
+      });
+      if (!res.didCancel && res.assets && res.assets.length > 0) {
+        setGroupPicAsset(res.assets[0]);
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not open image library.');
     }
   };
 
+  // Toggle Friend Selection for Group
+  const toggleSelectFriend = (friendId) => {
+    if (selectedFriends.includes(friendId)) {
+      setSelectedFriends(selectedFriends.filter((id) => id !== friendId));
+    } else {
+      setSelectedFriends([...selectedFriends, friendId]);
+    }
+  };
+
+  // Submit New Group
+  const handleCreateGroup = async () => {
+    if (!groupName.trim()) {
+      Alert.alert('Required', 'Please enter a group name.');
+      return;
+    }
+    if (selectedFriends.length === 0) {
+      Alert.alert('Select Members', 'Please select at least 1 friend to form a group.');
+      return;
+    }
+
+    try {
+      setCreatingGroup(true);
+      const formData = new FormData();
+      formData.append('name', groupName.trim());
+      formData.append('description', groupDesc.trim());
+      formData.append('memberIds', JSON.stringify(selectedFriends));
+
+      if (groupPicAsset) {
+        formData.append('groupPic', {
+          uri: groupPicAsset.uri,
+          name: groupPicAsset.fileName || 'group.jpg',
+          type: groupPicAsset.type || 'image/jpeg',
+        });
+      }
+
+      await dispatch(createGroupAction(formData));
+      setCreateGroupModal(false);
+      setGroupName('');
+      setGroupDesc('');
+      setSelectedFriends([]);
+      setGroupPicAsset(null);
+      Alert.alert('Success', 'Group created successfully!');
+    } catch (err) {
+      Alert.alert('Error', err?.message || 'Failed to create group.');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  // Filtered Online Friends for Active Tray
+  const onlineFriends = friends.filter((f) => f.isOnline);
+
+  // Formatting message timestamp
   const formatTime = (dateStr) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
@@ -89,11 +185,60 @@ const ChatsScreen = ({ navigation }) => {
     return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
   };
 
-  const renderItem = ({ item }) => {
+  // Render Read Receipt Tick
+  const renderTick = (status, isMine) => {
+    if (!isMine) return null;
+    if (status === 'seen') {
+      return <Ionicons name="checkmark-done" size={16} color={theme.tickSeen} style={styles.tick} />;
+    } else if (status === 'delivered') {
+      return <Ionicons name="checkmark-done" size={16} color={theme.tickDelivered} style={styles.tick} />;
+    } else {
+      return <Ionicons name="checkmark" size={16} color={theme.tickSent} style={styles.tick} />;
+    }
+  };
+
+  // Build unified chats/groups list
+  let combinedItems = [];
+  if (activeTab === 'all' || activeTab === 'direct') {
+    friends.forEach((f) => {
+      combinedItems.push({
+        type: 'direct',
+        id: f._id,
+        data: f,
+        timestamp: f.lastMessage?.createdAt ? new Date(f.lastMessage.createdAt).getTime() : 0,
+      });
+    });
+  }
+  if (activeTab === 'all' || activeTab === 'groups') {
+    groups.forEach((g) => {
+      combinedItems.push({
+        type: 'group',
+        id: g._id,
+        data: g,
+        timestamp: g.lastMessage?.createdAt ? new Date(g.lastMessage.createdAt).getTime() : 0,
+      });
+    });
+  }
+
+  // Sort list by latest message
+  combinedItems.sort((a, b) => b.timestamp - a.timestamp);
+
+  // Search filter
+  const filteredList = combinedItems.filter((item) => {
+    if (item.type === 'direct') {
+      return item.data.fullName?.toLowerCase().includes(searchQuery.toLowerCase());
+    } else {
+      return item.data.name?.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+  });
+
+  // Render Direct Friend Chat Row
+  const renderDirectChat = (item) => {
     const isMyLastMessage = item.lastMessage?.sender === user?._id;
 
     return (
       <TouchableOpacity
+        key={`direct_${item._id}`}
         style={styles.chatRow}
         activeOpacity={0.7}
         onPress={() => {
@@ -102,7 +247,7 @@ const ChatsScreen = ({ navigation }) => {
           });
         }}
       >
-        {/* Avatar with Online Green Dot */}
+        {/* Avatar with Real-time Online Green Dot */}
         <View style={styles.avatarWrap}>
           {item.profilePic ? (
             <Image source={{ uri: item.profilePic }} style={styles.avatar} />
@@ -111,15 +256,28 @@ const ChatsScreen = ({ navigation }) => {
               <Text style={styles.avatarInitial}>{item.fullName?.charAt(0).toUpperCase()}</Text>
             </View>
           )}
-          {item.isOnline && <View style={styles.onlineDot} />}
+          {item.isOnline ? (
+            <View style={styles.onlineBadgeGlow}>
+              <View style={styles.onlineDot} />
+            </View>
+          ) : (
+            <View style={styles.offlineDot} />
+          )}
         </View>
 
         {/* Chat Details */}
         <View style={styles.chatDetails}>
           <View style={styles.topRow}>
-            <Text style={styles.userName} numberOfLines={1}>
-              {item.fullName}
-            </Text>
+            <View style={styles.nameWithStatusRow}>
+              <Text style={styles.userName} numberOfLines={1}>
+                {item.fullName}
+              </Text>
+              {item.isOnline && (
+                <View style={styles.liveOnlineTag}>
+                  <Text style={styles.liveOnlineTagText}>ONLINE</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.timeText}>{formatTime(item.lastMessage?.createdAt)}</Text>
           </View>
 
@@ -130,7 +288,8 @@ const ChatsScreen = ({ navigation }) => {
                 <Ionicons name="image-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
               )}
               <Text style={styles.lastMessage} numberOfLines={1}>
-                {item.lastMessage?.content || (item.lastMessage?.messageType === 'image' ? 'Photo' : item.about || 'Start conversation')}
+                {item.lastMessage?.content ||
+                  (item.lastMessage?.messageType === 'image' ? 'Photo' : item.about || 'Start conversation')}
               </Text>
             </View>
 
@@ -142,34 +301,97 @@ const ChatsScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* WhatsApp-style Direct Call Buttons on Card */}
+        {/* Direct Call Buttons on Card */}
         <View style={styles.cardCallActions}>
           <TouchableOpacity
             style={styles.cardCallBtn}
-            onPress={() =>
-              navigation.navigate('Chat', { recipient: item, initiateCall: 'audio' })
-            }
+            onPress={() => navigation.navigate('Chat', { recipient: item, initiateCall: 'audio' })}
           >
-            <Ionicons name="call" size={18} color="#64748B" />
+            <Ionicons name="call" size={17} color="#64748B" />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.cardCallBtn}
-            onPress={() =>
-              navigation.navigate('Chat', { recipient: item, initiateCall: 'video' })
-            }
+            onPress={() => navigation.navigate('Chat', { recipient: item, initiateCall: 'video' })}
           >
-            <Ionicons name="videocam" size={20} color={theme.accent} />
+            <Ionicons name="videocam" size={19} color={theme.accent} />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
   };
 
+  // Render Group Chat Row
+  const renderGroupChat = (grp) => {
+    return (
+      <TouchableOpacity
+        key={`group_${grp._id}`}
+        style={styles.chatRow}
+        activeOpacity={0.7}
+        onPress={() => {
+          navigation.navigate('Chat', {
+            group: grp,
+          });
+        }}
+      >
+        {/* Group Avatar */}
+        <View style={styles.avatarWrap}>
+          {grp.groupPic ? (
+            <Image source={{ uri: grp.groupPic }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatarPlaceholder, { backgroundColor: '#0B2228' }]}>
+              <Ionicons name="people" size={24} color={theme.accent} />
+            </View>
+          )}
+          <View style={styles.groupBadgeOverlay}>
+            <Ionicons name="chatbubbles" size={10} color="#FFFFFF" />
+          </View>
+        </View>
+
+        {/* Group Details */}
+        <View style={styles.chatDetails}>
+          <View style={styles.topRow}>
+            <View style={styles.nameWithStatusRow}>
+              <Text style={styles.userName} numberOfLines={1}>
+                {grp.name}
+              </Text>
+              <View style={styles.groupMemberCountTag}>
+                <Text style={styles.groupMemberCountText}>
+                  {grp.members?.length || 0} members
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.timeText}>{formatTime(grp.lastMessage?.createdAt || grp.updatedAt)}</Text>
+          </View>
+
+          <View style={styles.bottomRow}>
+            <View style={styles.messagePreviewWrap}>
+              <Ionicons name="people-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
+              <Text style={styles.lastMessage} numberOfLines={1}>
+                {grp.lastMessage?.senderName ? `${grp.lastMessage.senderName}: ` : ''}
+                {grp.lastMessage?.content || 'Tap to start group chat'}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        <Ionicons name="chevron-forward" size={18} color="#CBD5E1" style={{ marginLeft: 6 }} />
+      </TouchableOpacity>
+    );
+  };
+
+  const renderUnifiedItem = ({ item }) => {
+    if (item.type === 'direct') {
+      return renderDirectChat(item.data);
+    } else {
+      return renderGroupChat(item.data);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
-      {/* WhatsApp App Bar */}
+      {/* Top App Bar */}
       <View style={styles.topBar}>
         <View style={styles.brandRow}>
           <View style={styles.brandIconCircle}>
@@ -180,13 +402,22 @@ const ChatsScreen = ({ navigation }) => {
         <View style={styles.topIcons}>
           <TouchableOpacity
             style={styles.iconBtn}
+            onPress={() => setCreateGroupModal(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="people-circle" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconBtn}
             onPress={() => setShowSearch(!showSearch)}
+            activeOpacity={0.7}
           >
             <Ionicons name="search" size={20} color="#FFFFFF" />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => navigation.navigate('Profile')}
+            activeOpacity={0.7}
           >
             <Ionicons name="ellipsis-vertical" size={20} color="#FFFFFF" />
           </TouchableOpacity>
@@ -199,7 +430,7 @@ const ChatsScreen = ({ navigation }) => {
           <Ionicons name="search" size={18} color="#64748B" style={{ marginRight: 8 }} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search conversations..."
+            placeholder="Search conversations, friends or groups..."
             placeholderTextColor="#94A3B8"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -213,11 +444,81 @@ const ChatsScreen = ({ navigation }) => {
         </View>
       )}
 
-      {/* Friends / Chats List */}
+      {/* Filter Tabs: All | Direct | Groups */}
+      <View style={styles.tabFilterRow}>
+        <TouchableOpacity
+          style={[styles.filterChip, activeTab === 'all' && styles.filterChipActive]}
+          onPress={() => setActiveTab('all')}
+        >
+          <Text style={[styles.filterChipText, activeTab === 'all' && styles.filterChipTextActive]}>
+            All ({friends.length + groups.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.filterChip, activeTab === 'direct' && styles.filterChipActive]}
+          onPress={() => setActiveTab('direct')}
+        >
+          <Text style={[styles.filterChipText, activeTab === 'direct' && styles.filterChipTextActive]}>
+            Chats ({friends.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.filterChip, activeTab === 'groups' && styles.filterChipActive]}
+          onPress={() => setActiveTab('groups')}
+        >
+          <Text style={[styles.filterChipText, activeTab === 'groups' && styles.filterChipTextActive]}>
+            Groups ({groups.length})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Active Online Friends Horizontal Tray */}
+      {onlineFriends.length > 0 && activeTab !== 'groups' && (
+        <View style={styles.onlineTrayContainer}>
+          <View style={styles.onlineTrayHeader}>
+            <View style={styles.onlineIndicatorPill}>
+              <View style={styles.pulsingGreenDot} />
+              <Text style={styles.onlineTrayTitle}>ONLINE FRIENDS ({onlineFriends.length})</Text>
+            </View>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.onlineScrollList}
+          >
+            {onlineFriends.map((f) => (
+              <TouchableOpacity
+                key={`online_${f._id}`}
+                style={styles.onlineAvatarItem}
+                activeOpacity={0.8}
+                onPress={() => navigation.navigate('Chat', { recipient: f })}
+              >
+                <View style={styles.onlineRingWrap}>
+                  {f.profilePic ? (
+                    <Image source={{ uri: f.profilePic }} style={styles.onlineTrayAvatar} />
+                  ) : (
+                    <View style={styles.onlineTrayAvatarPlaceholder}>
+                      <Text style={styles.onlineTrayAvatarText}>{f.fullName?.charAt(0)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.onlineTrayGreenDot} />
+                </View>
+                <Text style={styles.onlineTrayName} numberOfLines={1}>
+                  {f.fullName?.split(' ')[0]}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Unified List of Direct Friends & Groups */}
       <FlatList
-        data={filteredFriends}
-        keyExtractor={(item) => item._id}
-        renderItem={renderItem}
+        data={filteredList}
+        keyExtractor={(item) => `${item.type}_${item.id}`}
+        renderItem={renderUnifiedItem}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -230,32 +531,219 @@ const ChatsScreen = ({ navigation }) => {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIconCircle}>
-              <Ionicons name="chatbubbles-outline" size={48} color={theme.accent} />
+              <Ionicons
+                name={activeTab === 'groups' ? 'people-outline' : 'chatbubbles-outline'}
+                size={48}
+                color={theme.accent}
+              />
             </View>
-            <Text style={styles.emptyTitle}>No Chats Yet</Text>
-            <Text style={styles.emptySubtitle}>
-              You need to connect with friends first! Go to Discover to find registered friends and send connection requests.
+            <Text style={styles.emptyTitle}>
+              {activeTab === 'groups' ? 'No Groups Created Yet' : 'No Conversations Yet'}
             </Text>
-            <TouchableOpacity
-              style={styles.findFriendsBtn}
-              onPress={() => navigation.navigate('Discover')}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="person-add-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.findFriendsBtnText}>Find Friend Suggestions</Text>
-            </TouchableOpacity>
+            <Text style={styles.emptySubtitle}>
+              {activeTab === 'groups'
+                ? 'Create a group to chat with multiple friends at once!'
+                : 'Connect with friends in Discover, or tap Create Group to start a group chat!'}
+            </Text>
+            {activeTab === 'groups' ? (
+              <TouchableOpacity
+                style={styles.findFriendsBtn}
+                onPress={() => setCreateGroupModal(true)}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="add-circle" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.findFriendsBtnText}>Create New Group</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.findFriendsBtn}
+                onPress={() => navigation.navigate('Discover')}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="person-add-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.findFriendsBtnText}>Find Friend Suggestions</Text>
+              </TouchableOpacity>
+            )}
           </View>
         }
       />
 
-      {/* WhatsApp Floating Action Button (FAB) */}
-      <TouchableOpacity
-        style={styles.fab}
-        activeOpacity={0.85}
-        onPress={() => navigation.navigate('Discover')}
+      {/* Floating Action Buttons */}
+      <View style={styles.fabColumn}>
+        <TouchableOpacity
+          style={styles.fabSecondary}
+          activeOpacity={0.85}
+          onPress={() => setCreateGroupModal(true)}
+        >
+          <Ionicons name="people" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.fab}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('Discover')}
+        >
+          <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      </View>
+
+      {/* CREATE NEW GROUP MODAL */}
+      <Modal
+        visible={createGroupModal}
+        animationType="slide"
+        onRequestClose={() => setCreateGroupModal(false)}
       >
-        <Ionicons name="chatbubble-ellipses" size={24} color="#FFFFFF" />
-      </TouchableOpacity>
+        <View style={styles.modalContainer}>
+          <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
+
+          {/* Modal Header */}
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setCreateGroupModal(false)} style={styles.modalCloseBtn}>
+              <Ionicons name="close" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.modalHeaderTitle}>New Group</Text>
+              <Text style={styles.modalHeaderSubtitle}>
+                {selectedFriends.length} of {friends.length} selected
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.modalCreateBtn, creatingGroup && styles.disabledBtn]}
+              onPress={handleCreateGroup}
+              disabled={creatingGroup}
+            >
+              {creatingGroup ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.modalCreateBtnText}>Create</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            {/* Group Icon & Name Row */}
+            <View style={styles.groupInfoCard}>
+              <TouchableOpacity style={styles.groupPicPicker} onPress={pickGroupImage}>
+                {groupPicAsset ? (
+                  <Image source={{ uri: groupPicAsset.uri }} style={styles.groupPicPreview} />
+                ) : (
+                  <View style={styles.groupPicPlaceholder}>
+                    <Ionicons name="camera" size={26} color="#94A3B8" />
+                    <Text style={styles.groupPicPickerText}>Icon</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.groupInputWrap}>
+                <TextInput
+                  style={styles.groupNameInput}
+                  placeholder="Group subject..."
+                  placeholderTextColor="#94A3B8"
+                  value={groupName}
+                  onChangeText={setGroupName}
+                  maxLength={50}
+                />
+                <TextInput
+                  style={styles.groupDescInput}
+                  placeholder="Description (optional)"
+                  placeholderTextColor="#94A3B8"
+                  value={groupDesc}
+                  onChangeText={setGroupDesc}
+                  maxLength={120}
+                />
+              </View>
+            </View>
+
+            {/* Selected Members Chips */}
+            {selectedFriends.length > 0 && (
+              <View style={styles.selectedChipsSection}>
+                <Text style={styles.sectionSubtitle}>Selected Participants</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
+                  {selectedFriends.map((fId) => {
+                    const f = friends.find((fr) => fr._id === fId);
+                    if (!f) return null;
+                    return (
+                      <View key={`chip_${f._id}`} style={styles.memberChip}>
+                        <Text style={styles.memberChipText} numberOfLines={1}>
+                          {f.fullName?.split(' ')[0]}
+                        </Text>
+                        <TouchableOpacity onPress={() => toggleSelectFriend(f._id)}>
+                          <Ionicons name="close-circle" size={16} color="#DC2626" style={{ marginLeft: 4 }} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Friend Selector Header & Search */}
+            <View style={styles.selectFriendsHeader}>
+              <Text style={styles.selectFriendsTitle}>Add Participants</Text>
+              <View style={styles.friendSearchBox}>
+                <Ionicons name="search" size={16} color="#64748B" style={{ marginRight: 6 }} />
+                <TextInput
+                  style={styles.friendSearchInput}
+                  placeholder="Search contacts..."
+                  placeholderTextColor="#94A3B8"
+                  value={friendSearchQuery}
+                  onChangeText={setFriendSearchQuery}
+                />
+              </View>
+            </View>
+
+            {/* Friends Selection List */}
+            {friends
+              .filter((f) => f.fullName?.toLowerCase().includes(friendSearchQuery.toLowerCase()))
+              .map((f) => {
+                const isSelected = selectedFriends.includes(f._id);
+                return (
+                  <TouchableOpacity
+                    key={`select_${f._id}`}
+                    style={[styles.friendSelectRow, isSelected && styles.friendSelectRowActive]}
+                    activeOpacity={0.7}
+                    onPress={() => toggleSelectFriend(f._id)}
+                  >
+                    <View style={styles.avatarWrap}>
+                      {f.profilePic ? (
+                        <Image source={{ uri: f.profilePic }} style={styles.avatar} />
+                      ) : (
+                        <View style={styles.avatarPlaceholder}>
+                          <Text style={styles.avatarInitial}>{f.fullName?.charAt(0)}</Text>
+                        </View>
+                      )}
+                      {f.isOnline && <View style={styles.onlineDot} />}
+                    </View>
+
+                    <View style={styles.friendSelectInfo}>
+                      <Text style={styles.friendSelectName}>{f.fullName}</Text>
+                      <Text style={styles.friendSelectAbout} numberOfLines={1}>
+                        {f.isOnline ? 'Online now' : f.about || 'PulseChat User'}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.checkboxCircle,
+                        isSelected && styles.checkboxCircleChecked,
+                      ]}
+                    >
+                      {isSelected && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+
+            {friends.length === 0 && (
+              <View style={styles.noFriendsInGroup}>
+                <Ionicons name="person-outline" size={36} color="#CBD5E1" />
+                <Text style={styles.noFriendsInGroupText}>
+                  You need accepted friends to add them to a group. Connect in Discover first!
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -293,21 +781,12 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 0.5,
   },
-  cardCallActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 6,
-  },
-  cardCallBtn: {
-    padding: 8,
-    marginLeft: 2,
-  },
   topIcons: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   iconBtn: {
-    marginLeft: 18,
+    marginLeft: 16,
     padding: 2,
   },
   searchBarWrap: {
@@ -325,9 +804,119 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0F172A',
   },
+  tabFilterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 18,
+    backgroundColor: '#E2E8F0',
+    marginRight: 8,
+  },
+  filterChipActive: {
+    backgroundColor: theme.accent,
+  },
+  filterChipText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+  },
+  onlineTrayContainer: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    backgroundColor: '#FBFDFD',
+  },
+  onlineTrayHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  onlineIndicatorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E6FAF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  pulsingGreenDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#00C49F',
+    marginRight: 6,
+  },
+  onlineTrayTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#0D9488',
+    letterSpacing: 0.5,
+  },
+  onlineScrollList: {
+    paddingHorizontal: 14,
+  },
+  onlineAvatarItem: {
+    alignItems: 'center',
+    marginRight: 14,
+    width: 58,
+  },
+  onlineRingWrap: {
+    position: 'relative',
+    padding: 2,
+    borderRadius: 27,
+    borderWidth: 2,
+    borderColor: '#00C49F',
+  },
+  onlineTrayAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  onlineTrayAvatarPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#0F2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  onlineTrayAvatarText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  onlineTrayGreenDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: '#00C49F',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  onlineTrayName: {
+    fontSize: 11.5,
+    color: '#1E293B',
+    fontWeight: '600',
+    marginTop: 4,
+    textAlign: 'center',
+  },
   listContent: {
     flexGrow: 1,
-    paddingBottom: 80,
+    paddingBottom: 90,
   },
   chatRow: {
     flexDirection: 'row',
@@ -359,14 +948,46 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
+  onlineBadgeGlow: {
+    position: 'absolute',
+    bottom: 1,
+    right: 1,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#A7F3D0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   onlineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#00C49F',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  offlineDot: {
     position: 'absolute',
     bottom: 2,
     right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: theme.onlineBadge,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#94A3B8',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  groupBadgeOverlay: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    backgroundColor: theme.accent,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
   },
@@ -379,12 +1000,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  nameWithStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
   userName: {
     fontSize: 16,
     fontWeight: '700',
     color: '#0F172A',
-    flex: 1,
-    marginRight: 8,
+    marginRight: 6,
+  },
+  liveOnlineTag: {
+    backgroundColor: '#E6FAF5',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 6,
+  },
+  liveOnlineTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#00C49F',
+  },
+  groupMemberCountTag: {
+    backgroundColor: '#F1F5F9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  groupMemberCountText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#64748B',
   },
   timeText: {
     fontSize: 11.5,
@@ -423,12 +1071,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  cardCallActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  cardCallBtn: {
+    padding: 8,
+    marginLeft: 2,
+  },
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 30,
-    marginTop: 60,
+    marginTop: 50,
   },
   emptyIconCircle: {
     width: 88,
@@ -466,10 +1123,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  fab: {
+  fabColumn: {
     position: 'absolute',
     bottom: 24,
     right: 20,
+    alignItems: 'center',
+  },
+  fabSecondary: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#0F2D37',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    elevation: 4,
+  },
+  fab: {
     width: 58,
     height: 58,
     borderRadius: 29,
@@ -481,6 +1151,206 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  modalHeader: {
+    backgroundColor: theme.primary,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    elevation: 4,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  modalHeaderSubtitle: {
+    fontSize: 12,
+    color: '#CBD5E1',
+    textAlign: 'center',
+  },
+  modalCreateBtn: {
+    backgroundColor: theme.accent,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 16,
+  },
+  modalCreateBtnText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13.5,
+  },
+  disabledBtn: {
+    opacity: 0.6,
+  },
+  modalBody: {
+    flex: 1,
+  },
+  groupInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#F8FAFC',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E8F0',
+  },
+  groupPicPicker: {
+    marginRight: 14,
+  },
+  groupPicPreview: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  groupPicPlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+    borderStyle: 'dashed',
+  },
+  groupPicPickerText: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  groupInputWrap: {
+    flex: 1,
+  },
+  groupNameInput: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    borderBottomWidth: 1.5,
+    borderBottomColor: theme.accent,
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  groupDescInput: {
+    fontSize: 13,
+    color: '#475569',
+    paddingVertical: 4,
+  },
+  selectedChipsSection: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  chipsScroll: {
+    flexDirection: 'row',
+  },
+  memberChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E6FAF5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  memberChipText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#0D9488',
+  },
+  selectFriendsHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 8,
+  },
+  selectFriendsTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 8,
+  },
+  friendSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 38,
+  },
+  friendSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: '#0F172A',
+  },
+  friendSelectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 0.6,
+    borderBottomColor: '#F1F5F9',
+  },
+  friendSelectRowActive: {
+    backgroundColor: '#F0FDF4',
+  },
+  friendSelectInfo: {
+    flex: 1,
+  },
+  friendSelectName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0F172A',
+    marginBottom: 2,
+  },
+  friendSelectAbout: {
+    fontSize: 12.5,
+    color: '#64748B',
+  },
+  checkboxCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxCircleChecked: {
+    backgroundColor: theme.accent,
+    borderColor: theme.accent,
+  },
+  noFriendsInGroup: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    marginTop: 20,
+  },
+  noFriendsInGroupText: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 18,
   },
 });
 

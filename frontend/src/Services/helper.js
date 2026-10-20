@@ -69,8 +69,10 @@ export const theme = {
 
   // Chat Bubbles
   senderBubble: '#E2F7F2',    // WhatsApp-like subtle soft mint on right
+  outgoingBubble: '#E2F7F2',
   senderBubbleDark: '#0D3833',
   receiverBubble: '#FFFFFF',  // Clean white on left
+  incomingBubble: '#FFFFFF',
   receiverBubbleDark: '#1E293B',
   chatBackground: '#EFEAE2',  // WhatsApp-like background wallpaper tone
   chatBackgroundAlt: '#F3F5F7',

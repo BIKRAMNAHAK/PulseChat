@@ -11,7 +11,14 @@ const messageSchema = new mongoose.Schema(
     receiver: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false,
+      default: null,
+      index: true,
+    },
+    groupId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Group',
+      default: null,
       index: true,
     },
     content: {
@@ -57,6 +64,7 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ sender: 1, receiver: 1, createdAt: -1 });
+messageSchema.index({ groupId: 1, createdAt: 1 });
 
 const Message = mongoose.model('Message', messageSchema);
 module.exports = Message;
