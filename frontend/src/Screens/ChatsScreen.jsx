@@ -25,10 +25,12 @@ import {
   fetchRequestsAction,
   acceptRequestAction,
   rejectRequestAction,
+  clearUnreadCountAction,
 } from '../Services/Actions/chatActions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import socketService from '../Services/socketService';
-import { theme } from '../Services/helper';
+import { theme, getImageUrl } from '../Services/helper';
 
 const ChatsScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
@@ -95,6 +97,13 @@ const ChatsScreen = ({ navigation }) => {
       setAcceptingReqId(null);
     }
   };
+
+  // Automatically refresh friends list and unread counts whenever screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      dispatch(fetchFriendsAction());
+    }, [dispatch])
+  );
 
   useEffect(() => {
     loadData();
@@ -320,6 +329,7 @@ const ChatsScreen = ({ navigation }) => {
         style={styles.chatRow}
         activeOpacity={0.7}
         onPress={() => {
+          dispatch(clearUnreadCountAction(item._id));
           navigation.navigate('Chat', {
             recipient: item,
           });
@@ -328,7 +338,7 @@ const ChatsScreen = ({ navigation }) => {
         {/* Avatar with Real-time Online Green Dot */}
         <View style={styles.avatarWrap}>
           {item.profilePic ? (
-            <Image source={{ uri: item.profilePic }} style={styles.avatar} />
+            <Image source={{ uri: getImageUrl(item.profilePic) }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Text style={styles.avatarInitial}>{item.fullName?.charAt(0).toUpperCase()}</Text>

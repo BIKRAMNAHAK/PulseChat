@@ -1,12 +1,15 @@
-import { getApi, postApi } from '../helper';
+import { getApi, postApi, putApi, deleteApi } from '../helper';
 import socketService from '../socketService';
 
 export const SET_FRIENDS = 'SET_FRIENDS';
+export const CLEAR_UNREAD_COUNT = 'CLEAR_UNREAD_COUNT';
 export const SET_SUGGESTIONS = 'SET_SUGGESTIONS';
 export const SET_REQUESTS = 'SET_REQUESTS';
 export const SET_ACTIVE_MESSAGES = 'SET_ACTIVE_MESSAGES';
 export const ADD_MESSAGE = 'ADD_MESSAGE';
 export const UPDATE_MESSAGE_SEEN = 'UPDATE_MESSAGE_SEEN';
+export const MESSAGE_EDITED = 'MESSAGE_EDITED';
+export const MESSAGE_DELETED = 'MESSAGE_DELETED';
 export const UPDATE_USER_STATUS = 'UPDATE_USER_STATUS';
 export const USER_UNFOLLOWED = 'USER_UNFOLLOWED';
 export const SET_STATUSES = 'SET_STATUSES';
@@ -246,4 +249,53 @@ export const sendGroupMessageAction = (formData, isMultipart = false) => async (
     throw error;
   }
 };
+
+// 19. Immediately Clear Unread Count on Chat Open
+export const clearUnreadCountAction = (friendId) => ({
+  type: CLEAR_UNREAD_COUNT,
+  payload: friendId,
+});
+
+// 20. Edit Message
+export const editMessageAction = (messageId, content) => async (dispatch) => {
+  try {
+    const res = await putApi(`/chat/message/${messageId}`, { content });
+    if (res.success && res.message) {
+      dispatch({ type: MESSAGE_EDITED, payload: res.message });
+    }
+    return res;
+  } catch (error) {
+    console.error('editMessageAction error:', error);
+    throw error;
+  }
+};
+
+// 21. Delete Message ('everyone' or 'me')
+export const deleteMessageAction = (messageId, deleteType) => async (dispatch) => {
+  try {
+    const res = await deleteApi(`/chat/message/${messageId}`, { deleteType });
+    if (res.success) {
+      dispatch({
+        type: MESSAGE_DELETED,
+        payload: { messageId, deleteType, content: 'This message was deleted' },
+      });
+    }
+    return res;
+  } catch (error) {
+    console.error('deleteMessageAction error:', error);
+    throw error;
+  }
+};
+
+// 22. Real-time Socket Event Handlers for Edit & Delete
+export const onMessageEditedAction = (payload) => ({
+  type: MESSAGE_EDITED,
+  payload,
+});
+
+export const onMessageDeletedAction = (payload) => ({
+  type: MESSAGE_DELETED,
+  payload,
+});
+
 

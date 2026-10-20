@@ -103,9 +103,21 @@ exports.getGroupMessages = async (req, res) => {
       return res.status(403).json({ success: false, message: 'You are not a member of this group.' });
     }
 
-    const messages = await Message.find({ groupId })
+    const rawMessages = await Message.find({
+      groupId,
+      deletedFor: { $nin: [currentUserId] },
+    })
       .populate('sender', 'fullName profilePic')
       .sort({ createdAt: 1 });
+
+    const serverBase = `${req.protocol}://${req.get('host')}`;
+    const messages = rawMessages.map((m) => {
+      const obj = m.toObject();
+      if (obj.mediaUrl && !obj.mediaUrl.startsWith('http://') && !obj.mediaUrl.startsWith('https://')) {
+        obj.mediaUrl = `${serverBase}${obj.mediaUrl.startsWith('/') ? '' : '/'}${obj.mediaUrl}`;
+      }
+      return obj;
+    });
 
     return res.status(200).json({
       success: true,

@@ -26,10 +26,13 @@ import {
   sendGroupMessageAction,
   acceptRequestAction,
   sendFriendRequestAction,
+  clearUnreadCountAction,
+  editMessageAction,
+  deleteMessageAction,
 } from '../Services/Actions/chatActions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../Services/socketService';
-import { theme, postApi } from '../Services/helper';
+import { theme, postApi, getImageUrl } from '../Services/helper';
 import VideoCallModal from '../Components/VideoCallModal';
 
 const ChatScreen = ({ route, navigation }) => {
@@ -51,6 +54,13 @@ const ChatScreen = ({ route, navigation }) => {
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   const [groupInfoModal, setGroupInfoModal] = useState(false);
+
+  // Message Action Sheet & Edit States
+  const [selectedMessage, setSelectedMessage] = useState(null);
+  const [messageActionModalVisible, setMessageActionModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingText, setEditingText] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Call Modal State (1-on-1)
   const [callVisible, setCallVisible] = useState(!!initiateCall && !isGroup);
@@ -84,6 +94,38 @@ const ChatScreen = ({ route, navigation }) => {
 
   // 1. Load Messages & Sync Status on Mount
   useEffect(() => {
+    const handleMessageEdited = (data) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id && data.messageId && m._id.toString() === data.messageId.toString()
+            ? {
+                ...m,
+                content: data.content,
+                isEdited: true,
+                editedAt: data.editedAt || new Date(),
+              }
+            : m
+        )
+      );
+    };
+
+    const handleMessageDeleted = (data) => {
+      if (data.deleteType === 'everyone') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m._id && data.messageId && m._id.toString() === data.messageId.toString()
+              ? {
+                  ...m,
+                  isDeleted: true,
+                  content: 'This message was deleted',
+                  mediaUrl: '',
+                }
+              : m
+          )
+        );
+      }
+    };
+
     if (isGroup) {
       // Group Chat Setup
       socketService.joinGroup(group._id);
@@ -105,14 +147,21 @@ const ChatScreen = ({ route, navigation }) => {
       };
 
       socketService.on('receive-group-message', handleReceiveGroupMsg);
+      socketService.on('message-edited', handleMessageEdited);
+      socketService.on('message-deleted', handleMessageDeleted);
 
       return () => {
         socketService.off('receive-group-message', handleReceiveGroupMsg);
+        socketService.off('message-edited', handleMessageEdited);
+        socketService.off('message-deleted', handleMessageDeleted);
         socketService.leaveGroup(group._id);
       };
     } else {
       // Direct 1-on-1 Chat Setup
       if (!recipient?._id) return;
+
+      // Immediately clear unread badge in Redux
+      dispatch(clearUnreadCountAction(recipient._id));
 
       dispatch(fetchMessagesAction(recipient._id))
         .then((res) => {
@@ -188,6 +237,8 @@ const ChatScreen = ({ route, navigation }) => {
       socketService.on('user-status-changed', handleStatusChanged);
       socketService.on('user-unfollowed', handleUserUnfollowed);
       socketService.on('incoming-call', handleIncomingCall);
+      socketService.on('message-edited', handleMessageEdited);
+      socketService.on('message-deleted', handleMessageDeleted);
 
       return () => {
         socketService.off('receive-message', handleReceiveMsg);
@@ -196,6 +247,8 @@ const ChatScreen = ({ route, navigation }) => {
         socketService.off('user-status-changed', handleStatusChanged);
         socketService.off('user-unfollowed', handleUserUnfollowed);
         socketService.off('incoming-call', handleIncomingCall);
+        socketService.off('message-edited', handleMessageEdited);
+        socketService.off('message-deleted', handleMessageDeleted);
       };
     }
   }, [recipient?._id, group?._id, user?._id, isGroup, dispatch]);
@@ -392,16 +445,128 @@ const ChatScreen = ({ route, navigation }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Message Action Handlers (Edit / Delete)
+  const handleMessageLongPress = (item) => {
+    setSelectedMessage(item);
+    setMessageActionModalVisible(true);
+  };
+
+  const handleStartEdit = () => {
+    setMessageActionModalVisible(false);
+    if (!selectedMessage) return;
+    setEditingText(selectedMessage.content || '');
+    setEditModalVisible(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingText.trim()) {
+      Alert.alert('Empty', 'Message content cannot be empty.');
+      return;
+    }
+    if (!selectedMessage) return;
+
+    try {
+      setActionLoading(true);
+      await dispatch(editMessageAction(selectedMessage._id, editingText.trim()));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id && selectedMessage._id && m._id.toString() === selectedMessage._id.toString()
+            ? { ...m, content: editingText.trim(), isEdited: true, editedAt: new Date() }
+            : m
+        )
+      );
+      setEditModalVisible(false);
+      setSelectedMessage(null);
+    } catch (err) {
+      Alert.alert('Error', err.response?.data?.message || err?.message || 'Failed to edit message.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteForEveryone = () => {
+    setMessageActionModalVisible(false);
+    if (!selectedMessage) return;
+
+    Alert.alert(
+      'Delete for everyone?',
+      'This message will be deleted for everyone in this chat.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete for Everyone',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setActionLoading(true);
+              await dispatch(deleteMessageAction(selectedMessage._id, 'everyone'));
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m._id && selectedMessage._id && m._id.toString() === selectedMessage._id.toString()
+                    ? { ...m, isDeleted: true, content: 'This message was deleted', mediaUrl: '' }
+                    : m
+                )
+              );
+              setSelectedMessage(null);
+            } catch (err) {
+              Alert.alert('Error', err.response?.data?.message || err?.message || 'Failed to delete message.');
+            } finally {
+              setActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteForMe = () => {
+    setMessageActionModalVisible(false);
+    if (!selectedMessage) return;
+
+    Alert.alert(
+      'Delete for me?',
+      'This message will be removed from your chat history.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete for Me',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setActionLoading(true);
+              await dispatch(deleteMessageAction(selectedMessage._id, 'me'));
+              setMessages((prev) =>
+                prev.filter(
+                  (m) => !(m._id && selectedMessage._id && m._id.toString() === selectedMessage._id.toString())
+                )
+              );
+              setSelectedMessage(null);
+            } catch (err) {
+              Alert.alert('Error', err.response?.data?.message || err?.message || 'Failed to delete message.');
+            } finally {
+              setActionLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderMessageItem = ({ item }) => {
     const isMine = item.sender === user?._id || item.sender?._id === user?._id;
     const senderName = item.sender?.fullName || 'Member';
+    const isDeleted = !!item.isDeleted;
 
     return (
       <View style={[styles.messageRow, isMine ? styles.myMessageRow : styles.theirMessageRow]}>
-        <View
+        <TouchableOpacity
+          activeOpacity={0.88}
+          onLongPress={() => handleMessageLongPress(item)}
+          delayLongPress={300}
           style={[
             styles.messageBubble,
             isMine ? styles.myBubble : styles.theirBubble,
+            isDeleted && styles.deletedBubble,
           ]}
         >
           {/* In Group Chat: Show Sender Name on Left Bubble */}
@@ -409,32 +574,50 @@ const ChatScreen = ({ route, navigation }) => {
             <Text style={styles.groupSenderName}>{senderName}</Text>
           )}
 
-          {/* Image Attachment (if image message) */}
-          {item.mediaUrl ? (
-            <TouchableOpacity
-              activeOpacity={0.9}
-              onPress={() => {
-                setSelectedImageUrl(item.mediaUrl);
-                setImageModalVisible(true);
-              }}
-            >
-              <Image source={{ uri: item.mediaUrl }} style={styles.bubbleImage} resizeMode="cover" />
-            </TouchableOpacity>
-          ) : null}
+          {isDeleted ? (
+            <View style={styles.deletedRow}>
+              <Ionicons name="ban-outline" size={14} color="#64748B" style={{ marginRight: 6 }} />
+              <Text style={styles.deletedText}>This message was deleted</Text>
+            </View>
+          ) : (
+            <>
+              {/* Image Attachment (if image message) */}
+              {item.mediaUrl ? (
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  onPress={() => {
+                    setSelectedImageUrl(getImageUrl(item.mediaUrl));
+                    setImageModalVisible(true);
+                  }}
+                  onLongPress={() => handleMessageLongPress(item)}
+                  delayLongPress={300}
+                >
+                  <Image
+                    source={{ uri: getImageUrl(item.mediaUrl) }}
+                    style={styles.bubbleImage}
+                    resizeMode="cover"
+                  />
+                </TouchableOpacity>
+              ) : null}
 
-          {/* Message Text */}
-          {item.content ? (
-            <Text style={[styles.messageText, isMine ? styles.myText : styles.theirText]}>
-              {item.content}
-            </Text>
-          ) : null}
+              {/* Message Text */}
+              {item.content ? (
+                <Text style={[styles.messageText, isMine ? styles.myText : styles.theirText]}>
+                  {item.content}
+                </Text>
+              ) : null}
+            </>
+          )}
 
-          {/* Timestamp & Seen Tick */}
+          {/* Timestamp, Edited Tag & Seen Tick */}
           <View style={styles.bubbleFooter}>
+            {item.isEdited && !isDeleted && (
+              <Text style={styles.editedLabel}>edited</Text>
+            )}
             <Text style={styles.bubbleTime}>{formatMessageTime(item.createdAt)}</Text>
-            {isMine && !isGroup && renderReadTick(item.status)}
+            {isMine && !isGroup && !isDeleted && renderReadTick(item.status)}
           </View>
-        </View>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -736,12 +919,137 @@ const ChatScreen = ({ route, navigation }) => {
           </TouchableOpacity>
           {selectedImageUrl ? (
             <Image
-              source={{ uri: selectedImageUrl }}
+              source={{ uri: getImageUrl(selectedImageUrl) }}
               style={styles.fullImage}
               resizeMode="contain"
             />
           ) : null}
         </View>
+      </Modal>
+
+      {/* Message Action Sheet Modal (WhatsApp style) */}
+      <Modal
+        visible={messageActionModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMessageActionModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setMessageActionModalVisible(false)}
+        >
+          <View style={styles.actionSheetContainer}>
+            <View style={styles.dragHandle} />
+            <View style={styles.actionSheetHeader}>
+              <Text style={styles.actionSheetTitle}>MESSAGE OPTIONS</Text>
+            </View>
+
+            {/* Edit Option: only for sender, if not deleted, and not an image/call log */}
+            {selectedMessage &&
+              (selectedMessage.sender === user?._id || selectedMessage.sender?._id === user?._id) &&
+              !selectedMessage.isDeleted &&
+              selectedMessage.messageType !== 'image' && (
+                <TouchableOpacity
+                  style={styles.actionSheetItem}
+                  onPress={handleStartEdit}
+                >
+                  <View style={[styles.actionIconBox, { backgroundColor: '#E0F2FE' }]}>
+                    <Ionicons name="pencil" size={18} color="#0284C7" />
+                  </View>
+                  <Text style={styles.actionSheetText}>Edit Message</Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Delete for Everyone: only for sender and if not already deleted */}
+            {selectedMessage &&
+              (selectedMessage.sender === user?._id || selectedMessage.sender?._id === user?._id) &&
+              !selectedMessage.isDeleted && (
+                <TouchableOpacity
+                  style={styles.actionSheetItem}
+                  onPress={handleDeleteForEveryone}
+                >
+                  <View style={[styles.actionIconBox, { backgroundColor: '#FEE2E2' }]}>
+                    <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                  </View>
+                  <Text style={[styles.actionSheetText, { color: '#DC2626' }]}>
+                    Delete for Everyone
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Delete for Me: always available */}
+            <TouchableOpacity
+              style={styles.actionSheetItem}
+              onPress={handleDeleteForMe}
+            >
+              <View style={[styles.actionIconBox, { backgroundColor: '#F1F5F9' }]}>
+                <Ionicons name="trash-bin-outline" size={18} color="#475569" />
+              </View>
+              <Text style={styles.actionSheetText}>Delete for Me</Text>
+            </TouchableOpacity>
+
+            {/* Cancel Button */}
+            <TouchableOpacity
+              style={[styles.actionSheetItem, styles.cancelActionItem]}
+              onPress={() => setMessageActionModalVisible(false)}
+            >
+              <Text style={styles.cancelActionText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Edit Message Modal */}
+      <Modal
+        visible={editModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.editModalContainer}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Edit Message</Text>
+              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+                <Ionicons name="close" size={22} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              style={styles.editTextInput}
+              value={editingText}
+              onChangeText={setEditingText}
+              multiline
+              autoFocus
+              placeholder="Edit your message..."
+              placeholderTextColor="#94A3B8"
+            />
+
+            <View style={styles.editModalBtnRow}>
+              <TouchableOpacity
+                style={styles.editCancelBtn}
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Text style={styles.editCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.editSaveBtn}
+                onPress={handleSaveEdit}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.editSaveText}>Update</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Group Info Modal */}
@@ -1314,6 +1622,161 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#DC2626',
+  },
+  // Deleted & Edited Message Styles
+  deletedBubble: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 0.8,
+    borderColor: '#E2E8F0',
+  },
+  deletedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 3,
+  },
+  deletedText: {
+    fontSize: 14,
+    fontStyle: 'italic',
+    color: '#64748B',
+  },
+  editedLabel: {
+    fontSize: 10,
+    color: '#64748B',
+    marginRight: 4,
+    fontStyle: 'italic',
+  },
+  // Modal & Action Sheet Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    justifyContent: 'flex-end',
+  },
+  actionSheetContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+    elevation: 8,
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#CBD5E1',
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  actionSheetHeader: {
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderBottomWidth: 0.6,
+    borderBottomColor: '#F1F5F9',
+    marginBottom: 6,
+  },
+  actionSheetTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#94A3B8',
+    letterSpacing: 0.8,
+  },
+  actionSheetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#F1F5F9',
+  },
+  actionIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  actionSheetText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  cancelActionItem: {
+    justifyContent: 'center',
+    borderBottomWidth: 0,
+    marginTop: 8,
+    paddingVertical: 12,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+  },
+  cancelActionText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#64748B',
+    textAlign: 'center',
+  },
+  // Edit Modal Styles
+  editModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    elevation: 10,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  editModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  editTextInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#0F172A',
+    minHeight: 70,
+    maxHeight: 140,
+    textAlignVertical: 'top',
+  },
+  editModalBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  editCancelBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginRight: 8,
+  },
+  editCancelText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  editSaveBtn: {
+    backgroundColor: theme.accent,
+    paddingHorizontal: 22,
+    paddingVertical: 10,
+    borderRadius: 10,
+    minWidth: 84,
+    alignItems: 'center',
+    elevation: 2,
+  },
+  editSaveText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
 });
 

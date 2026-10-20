@@ -14,6 +14,14 @@ export const BASE_URL = `${SERVER_URL}/api`;
 
 export const SOCKET_URL = SERVER_URL;
 
+export const getImageUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('file://')) {
+    return url;
+  }
+  return `${SERVER_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+};
+
 /* =====================================================
    2. AXIOS INSTANCE & INTERCEPTORS
    ===================================================== */

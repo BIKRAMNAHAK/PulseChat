@@ -48,6 +48,24 @@ const messageSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    isEdited: {
+      type: Boolean,
+      default: false,
+    },
+    editedAt: {
+      type: Date,
+      default: null,
+    },
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedFor: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
     callDuration: {
       type: Number,
       default: 0,
