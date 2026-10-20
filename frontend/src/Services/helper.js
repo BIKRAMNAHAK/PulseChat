@@ -5,15 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 /* =====================================================
    1. SERVER CONFIGURATION
    ===================================================== */
-export const SERVER_IP = '192.168.54.97';
-export const PORT = 5000;
-
-export const SERVER_URL = Platform.select({
-  android: `http://${SERVER_IP}:${PORT}`,
-  ios: `http://localhost:${PORT}`,
-  default: `http://localhost:${PORT}`,
-});
-
+export const SERVER_URL = 'https://pulsechat-hoid.onrender.com';
 export const BASE_URL = `${SERVER_URL}/api`;
 export const SOCKET_URL = SERVER_URL;
 
