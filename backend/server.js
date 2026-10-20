@@ -297,9 +297,16 @@ app.get('/api/auth/online-users', (req, res) => {
 
 // Root health check endpoint
 app.get('/api/health', (req, res) => {
+  const mongoose = require('mongoose');
+  const states = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  const dbState = states[mongoose.connection.readyState] || 'unknown';
+
   res.status(200).json({
     status: 'online',
-    message: 'MyChat Secure Server is running!',
+    database: dbState,
+    dbHost: mongoose.connection.host || null,
+    dbName: mongoose.connection.name || null,
+    message: dbState === 'connected' ? 'PulseChat Server & Database connected!' : 'Server is running, but database is not connected!',
     onlineCount: activeUsers.size,
     timestamp: new Date(),
   });
