@@ -186,108 +186,108 @@ const ProfileScreen = ({ route, navigation }) => {
         {!isSelf && (
           <View style={styles.actionRowContainer}>
             <TouchableOpacity
-              style={styles.actionBtnCard}
+              style={[styles.actionBtnCard, { backgroundColor: currentTheme.card, borderColor: currentTheme.border }]}
               onPress={() => navigation.navigate('Chat', { recipient: targetUser })}
               activeOpacity={0.8}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: '#E6FAF5' }]}>
+              <View style={[styles.actionIconCircle, { backgroundColor: themeMode === 'dark' ? '#0F2D37' : '#E6FAF5' }]}>
                 <Ionicons name="chatbubbles" size={20} color={theme.accent} />
               </View>
-              <Text style={styles.actionBtnLabel}>Message</Text>
+              <Text style={[styles.actionBtnLabel, { color: currentTheme.textPrimary }]}>Message</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.actionBtnCard}
+              style={[styles.actionBtnCard, { backgroundColor: currentTheme.card, borderColor: currentTheme.border }]}
               onPress={() => navigation.navigate('Chat', { recipient: targetUser, initiateCall: 'audio' })}
               activeOpacity={0.8}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: '#EFF6FF' }]}>
+              <View style={[styles.actionIconCircle, { backgroundColor: themeMode === 'dark' ? '#1E293B' : '#EFF6FF' }]}>
                 <Ionicons name="call" size={20} color="#2563EB" />
               </View>
-              <Text style={styles.actionBtnLabel}>Audio Call</Text>
+              <Text style={[styles.actionBtnLabel, { color: currentTheme.textPrimary }]}>Audio Call</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.actionBtnCard}
+              style={[styles.actionBtnCard, { backgroundColor: currentTheme.card, borderColor: currentTheme.border }]}
               onPress={() => navigation.navigate('Chat', { recipient: targetUser, initiateCall: 'video' })}
               activeOpacity={0.8}
             >
-              <View style={[styles.actionIconCircle, { backgroundColor: '#F0FDF4' }]}>
+              <View style={[styles.actionIconCircle, { backgroundColor: themeMode === 'dark' ? '#064E3B' : '#F0FDF4' }]}>
                 <Ionicons name="videocam" size={20} color="#16A34A" />
               </View>
-              <Text style={styles.actionBtnLabel}>Video Call</Text>
+              <Text style={[styles.actionBtnLabel, { color: currentTheme.textPrimary }]}>Video Call</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {/* Info Cards */}
-        <View style={styles.card}>
+        <View style={[styles.card, { backgroundColor: currentTheme.card }]}>
           {/* Full Name */}
-          <View style={styles.itemRow}>
+          <View style={[styles.itemRow, { borderBottomColor: currentTheme.border }]}>
             <Ionicons name="person-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
-              <Text style={styles.itemLabel}>Name</Text>
+              <Text style={[styles.itemLabel, { color: currentTheme.textSecondary }]}>Name</Text>
               {isSelf ? (
                 <TextInput
-                  style={styles.itemInput}
+                  style={[styles.itemInput, { color: currentTheme.textPrimary }]}
                   value={fullName}
                   onChangeText={setFullName}
                   placeholder="Your full name"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={currentTheme.textMuted}
                 />
               ) : (
-                <Text style={styles.itemValue}>{targetUser?.fullName || 'User'}</Text>
+                <Text style={[styles.itemValue, { color: currentTheme.textPrimary }]}>{targetUser?.fullName || 'User'}</Text>
               )}
             </View>
           </View>
 
           {/* About / Bio */}
-          <View style={styles.itemRow}>
+          <View style={[styles.itemRow, { borderBottomColor: currentTheme.border }]}>
             <Ionicons name="information-circle-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
-              <Text style={styles.itemLabel}>About</Text>
+              <Text style={[styles.itemLabel, { color: currentTheme.textSecondary }]}>About</Text>
               {isSelf ? (
                 <TextInput
-                  style={styles.itemInput}
+                  style={[styles.itemInput, { color: currentTheme.textPrimary }]}
                   value={about}
                   onChangeText={setAbout}
                   placeholder="About status"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={currentTheme.textMuted}
                 />
               ) : (
-                <Text style={styles.itemValue}>{targetUser?.about || 'Hey there! I am using PulseChat.'}</Text>
+                <Text style={[styles.itemValue, { color: currentTheme.textPrimary }]}>{targetUser?.about || 'Hey there! I am using PulseChat.'}</Text>
               )}
             </View>
           </View>
 
           {/* Phone */}
-          <View style={styles.itemRow}>
+          <View style={[styles.itemRow, { borderBottomColor: currentTheme.border }]}>
             <Ionicons name="call-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
-              <Text style={styles.itemLabel}>Phone Number</Text>
-              <Text style={styles.itemValue}>
+              <Text style={[styles.itemLabel, { color: currentTheme.textSecondary }]}>Phone Number</Text>
+              <Text style={[styles.itemValue, { color: currentTheme.textPrimary }]}>
                 {isSelf ? currentUser?.mobileNumber : (targetUser?.mobileNumber || 'Private')}
               </Text>
             </View>
           </View>
 
           {/* Email */}
-          <View style={styles.itemRow}>
+          <View style={[styles.itemRow, { borderBottomColor: currentTheme.border }]}>
             <Ionicons name="mail-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
-              <Text style={styles.itemLabel}>Email</Text>
-              <Text style={styles.itemValue}>
+              <Text style={[styles.itemLabel, { color: currentTheme.textSecondary }]}>Email</Text>
+              <Text style={[styles.itemValue, { color: currentTheme.textPrimary }]}>
                 {isSelf ? currentUser?.email : (targetUser?.email || 'Private')}
               </Text>
             </View>
           </View>
 
           {/* Location / Address */}
-          <View style={styles.itemRow}>
+          <View style={[styles.itemRow, { borderBottomColor: currentTheme.border }]}>
             <Ionicons name="location-outline" size={22} color={theme.accent} style={styles.itemIcon} />
             <View style={styles.itemContent}>
-              <Text style={styles.itemLabel}>Location</Text>
-              <Text style={styles.itemValue}>
+              <Text style={[styles.itemLabel, { color: currentTheme.textSecondary }]}>Location</Text>
+              <Text style={[styles.itemValue, { color: currentTheme.textPrimary }]}>
                 {(isSelf ? currentUser : targetUser)?.address?.formattedAddress ||
                   (isSelf ? currentUser : targetUser)?.address?.city ||
                   'Local Area'}
@@ -374,24 +374,24 @@ const ProfileScreen = ({ route, navigation }) => {
         onRequestClose={() => setPickerModalVisible(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.pickerCard}>
-            <Text style={styles.pickerTitle}>Update Profile Photo</Text>
+          <View style={[styles.pickerCard, { backgroundColor: currentTheme.card }]}>
+            <Text style={[styles.pickerTitle, { color: currentTheme.textPrimary }]}>Update Profile Photo</Text>
 
-            <TouchableOpacity style={styles.pickerOption} onPress={handlePickFromGallery}>
+            <TouchableOpacity style={[styles.pickerOption, { borderBottomColor: currentTheme.border }]} onPress={handlePickFromGallery}>
               <Ionicons name="images-outline" size={22} color={theme.accent} />
-              <Text style={styles.pickerOptionText}>Choose from Gallery</Text>
+              <Text style={[styles.pickerOptionText, { color: currentTheme.textPrimary }]}>Choose from Gallery</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.pickerOption} onPress={handleTakePhoto}>
+            <TouchableOpacity style={[styles.pickerOption, { borderBottomColor: currentTheme.border }]} onPress={handleTakePhoto}>
               <Ionicons name="camera-outline" size={22} color={theme.accent} />
-              <Text style={styles.pickerOptionText}>Take Photo with Camera</Text>
+              <Text style={[styles.pickerOptionText, { color: currentTheme.textPrimary }]}>Take Photo with Camera</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.pickerCancel}
               onPress={() => setPickerModalVisible(false)}
             >
-              <Text style={styles.pickerCancelText}>Cancel</Text>
+              <Text style={[styles.pickerCancelText, { color: currentTheme.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </View>

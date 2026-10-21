@@ -551,28 +551,37 @@ const ChatsScreen = ({ navigation }) => {
       {/* Filter Tabs: All | Direct | Groups */}
       <View style={[styles.tabFilterRow, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
         <TouchableOpacity
-          style={[styles.filterChip, activeTab === 'all' && styles.filterChipActive]}
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeTab === 'all' ? theme.accent : (themeMode === 'dark' ? '#1F2C34' : '#E2E8F0') },
+          ]}
           onPress={() => setActiveTab('all')}
         >
-          <Text style={[styles.filterChipText, activeTab === 'all' && styles.filterChipTextActive]}>
+          <Text style={[styles.filterChipText, { color: activeTab === 'all' ? '#FFFFFF' : currentTheme.textSecondary }]}>
             All ({friends.length + groups.length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.filterChip, activeTab === 'direct' && styles.filterChipActive]}
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeTab === 'direct' ? theme.accent : (themeMode === 'dark' ? '#1F2C34' : '#E2E8F0') },
+          ]}
           onPress={() => setActiveTab('direct')}
         >
-          <Text style={[styles.filterChipText, activeTab === 'direct' && styles.filterChipTextActive]}>
+          <Text style={[styles.filterChipText, { color: activeTab === 'direct' ? '#FFFFFF' : currentTheme.textSecondary }]}>
             Chats ({friends.length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.filterChip, activeTab === 'groups' && styles.filterChipActive]}
+          style={[
+            styles.filterChip,
+            { backgroundColor: activeTab === 'groups' ? theme.accent : (themeMode === 'dark' ? '#1F2C34' : '#E2E8F0') },
+          ]}
           onPress={() => setActiveTab('groups')}
         >
-          <Text style={[styles.filterChipText, activeTab === 'groups' && styles.filterChipTextActive]}>
+          <Text style={[styles.filterChipText, { color: activeTab === 'groups' ? '#FFFFFF' : currentTheme.textSecondary }]}>
             Groups ({groups.length})
           </Text>
         </TouchableOpacity>
@@ -580,14 +589,22 @@ const ChatsScreen = ({ navigation }) => {
 
       {/* Incoming Friend Requests Banner / Action Cards */}
       {incomingRequests.length > 0 && (
-        <View style={styles.incomingBannerContainer}>
+        <View
+          style={[
+            styles.incomingBannerContainer,
+            {
+              backgroundColor: themeMode === 'dark' ? '#0E2A21' : '#F0FDF4',
+              borderColor: themeMode === 'dark' ? '#15803D' : '#86EFAC',
+            },
+          ]}
+        >
           <View style={styles.incomingBannerHeader}>
             <View style={styles.incomingBannerTitleRow}>
               <View style={styles.incomingBadgePill}>
                 <Ionicons name="person-add" size={13} color="#FFFFFF" />
                 <Text style={styles.incomingBadgeCount}>{incomingRequests.length}</Text>
               </View>
-              <Text style={styles.incomingBannerTitle}>
+              <Text style={[styles.incomingBannerTitle, { color: themeMode === 'dark' ? '#86EFAC' : '#14532D' }]}>
                 {incomingRequests.length === 1 ? 'New Friend Request' : `Friend Requests (${incomingRequests.length})`}
               </Text>
             </View>
@@ -597,7 +614,13 @@ const ChatsScreen = ({ navigation }) => {
           </View>
 
           {incomingRequests.map((req) => (
-            <View key={`req_${req._id}`} style={styles.incomingRequestCard}>
+            <View
+              key={`req_${req._id}`}
+              style={[
+                styles.incomingRequestCard,
+                { backgroundColor: currentTheme.card, borderColor: currentTheme.border },
+              ]}
+            >
               <View style={styles.incomingAvatarWrap}>
                 {req.sender?.profilePic ? (
                   <Image source={{ uri: req.sender.profilePic }} style={styles.incomingAvatar} />
@@ -611,10 +634,10 @@ const ChatsScreen = ({ navigation }) => {
               </View>
 
               <View style={styles.incomingInfoWrap}>
-                <Text style={styles.incomingSenderName} numberOfLines={1}>
+                <Text style={[styles.incomingSenderName, { color: currentTheme.textPrimary }]} numberOfLines={1}>
                   {req.sender?.fullName || 'User'}
                 </Text>
-                <Text style={styles.incomingSenderSub} numberOfLines={1}>
+                <Text style={[styles.incomingSenderSub, { color: currentTheme.textSecondary }]} numberOfLines={1}>
                   {req.sender?.about || 'Wants to connect with you'}
                 </Text>
               </View>
@@ -637,12 +660,12 @@ const ChatsScreen = ({ navigation }) => {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.incomingRejectBtn}
+                  style={[styles.incomingRejectBtn, { backgroundColor: themeMode === 'dark' ? '#1F2C34' : '#F1F5F9' }]}
                   activeOpacity={0.8}
                   disabled={acceptingReqId === req._id}
                   onPress={() => handleRejectIncomingRequest(req._id)}
                 >
-                  <Ionicons name="close" size={16} color="#94A3B8" />
+                  <Ionicons name="close" size={16} color={currentTheme.textSecondary} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -652,11 +675,11 @@ const ChatsScreen = ({ navigation }) => {
 
       {/* Active Online Friends Horizontal Tray */}
       {onlineFriends.length > 0 && activeTab !== 'groups' && (
-        <View style={styles.onlineTrayContainer}>
+        <View style={[styles.onlineTrayContainer, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
           <View style={styles.onlineTrayHeader}>
-            <View style={styles.onlineIndicatorPill}>
+            <View style={[styles.onlineIndicatorPill, { backgroundColor: themeMode === 'dark' ? '#112A26' : '#E6FAF5' }]}>
               <View style={styles.pulsingGreenDot} />
-              <Text style={styles.onlineTrayTitle}>ONLINE FRIENDS ({onlineFriends.length})</Text>
+              <Text style={[styles.onlineTrayTitle, { color: theme.accent }]}>ONLINE FRIENDS ({onlineFriends.length})</Text>
             </View>
           </View>
           <ScrollView
@@ -681,7 +704,7 @@ const ChatsScreen = ({ navigation }) => {
                   )}
                   <View style={styles.onlineTrayGreenDot} />
                 </View>
-                <Text style={styles.onlineTrayName} numberOfLines={1}>
+                <Text style={[styles.onlineTrayName, { color: currentTheme.textPrimary }]} numberOfLines={1}>
                   {f.fullName?.split(' ')[0]}
                 </Text>
               </TouchableOpacity>
@@ -706,17 +729,17 @@ const ChatsScreen = ({ navigation }) => {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
+            <View style={[styles.emptyIconCircle, { backgroundColor: themeMode === 'dark' ? '#112A26' : '#E6FAF5' }]}>
               <Ionicons
                 name={activeTab === 'groups' ? 'people-outline' : 'chatbubbles-outline'}
                 size={48}
                 color={theme.accent}
               />
             </View>
-            <Text style={styles.emptyTitle}>
+            <Text style={[styles.emptyTitle, { color: currentTheme.textPrimary }]}>
               {activeTab === 'groups' ? 'No Groups Created Yet' : 'No Conversations Yet'}
             </Text>
-            <Text style={styles.emptySubtitle}>
+            <Text style={[styles.emptySubtitle, { color: currentTheme.textSecondary }]}>
               {activeTab === 'groups'
                 ? 'Create a group to chat with multiple friends at once!'
                 : 'Connect with friends in Discover, or tap Create Group to start a group chat!'}
@@ -768,7 +791,7 @@ const ChatsScreen = ({ navigation }) => {
         animationType="slide"
         onRequestClose={() => setCreateGroupModal(false)}
       >
-        <View style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { backgroundColor: currentTheme.background }]}>
           <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
           {/* Modal Header */}
@@ -797,31 +820,31 @@ const ChatsScreen = ({ navigation }) => {
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             {/* Group Icon & Name Row */}
-            <View style={styles.groupInfoCard}>
+            <View style={[styles.groupInfoCard, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
               <TouchableOpacity style={styles.groupPicPicker} onPress={pickGroupImage}>
                 {groupPicAsset ? (
                   <Image source={{ uri: groupPicAsset.uri }} style={styles.groupPicPreview} />
                 ) : (
-                  <View style={styles.groupPicPlaceholder}>
-                    <Ionicons name="camera" size={26} color="#94A3B8" />
-                    <Text style={styles.groupPicPickerText}>Icon</Text>
+                  <View style={[styles.groupPicPlaceholder, { backgroundColor: themeMode === 'dark' ? '#1F2C34' : '#E2E8F0', borderColor: currentTheme.border }]}>
+                    <Ionicons name="camera" size={26} color={currentTheme.textSecondary} />
+                    <Text style={[styles.groupPicPickerText, { color: currentTheme.textSecondary }]}>Icon</Text>
                   </View>
                 )}
               </TouchableOpacity>
 
               <View style={styles.groupInputWrap}>
                 <TextInput
-                  style={styles.groupNameInput}
+                  style={[styles.groupNameInput, { color: currentTheme.textPrimary }]}
                   placeholder="Group subject..."
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={currentTheme.textMuted}
                   value={groupName}
                   onChangeText={setGroupName}
                   maxLength={50}
                 />
                 <TextInput
-                  style={styles.groupDescInput}
+                  style={[styles.groupDescInput, { color: currentTheme.textSecondary }]}
                   placeholder="Description (optional)"
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={currentTheme.textMuted}
                   value={groupDesc}
                   onChangeText={setGroupDesc}
                   maxLength={120}
@@ -831,15 +854,15 @@ const ChatsScreen = ({ navigation }) => {
 
             {/* Selected Members Chips */}
             {selectedFriends.length > 0 && (
-              <View style={styles.selectedChipsSection}>
-                <Text style={styles.sectionSubtitle}>Selected Participants</Text>
+              <View style={[styles.selectedChipsSection, { borderBottomColor: currentTheme.border }]}>
+                <Text style={[styles.sectionSubtitle, { color: currentTheme.textSecondary }]}>Selected Participants</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll}>
                   {selectedFriends.map((fId) => {
                     const f = friends.find((fr) => fr._id === fId);
                     if (!f) return null;
                     return (
-                      <View key={`chip_${f._id}`} style={styles.memberChip}>
-                        <Text style={styles.memberChipText} numberOfLines={1}>
+                      <View key={`chip_${f._id}`} style={[styles.memberChip, { backgroundColor: themeMode === 'dark' ? '#0F2D37' : '#E6FAF5', borderColor: theme.accent }]}>
+                        <Text style={[styles.memberChipText, { color: theme.accent }]} numberOfLines={1}>
                           {f.fullName?.split(' ')[0]}
                         </Text>
                         <TouchableOpacity onPress={() => toggleSelectFriend(f._id)}>
@@ -854,13 +877,13 @@ const ChatsScreen = ({ navigation }) => {
 
             {/* Friend Selector Header & Search */}
             <View style={styles.selectFriendsHeader}>
-              <Text style={styles.selectFriendsTitle}>Add Participants</Text>
-              <View style={styles.friendSearchBox}>
-                <Ionicons name="search" size={16} color="#64748B" style={{ marginRight: 6 }} />
+              <Text style={[styles.selectFriendsTitle, { color: currentTheme.textPrimary }]}>Add Participants</Text>
+              <View style={[styles.friendSearchBox, { backgroundColor: currentTheme.inputBackground }]}>
+                <Ionicons name="search" size={16} color={currentTheme.textMuted} style={{ marginRight: 6 }} />
                 <TextInput
-                  style={styles.friendSearchInput}
+                  style={[styles.friendSearchInput, { color: currentTheme.textPrimary }]}
                   placeholder="Search contacts..."
-                  placeholderTextColor="#94A3B8"
+                  placeholderTextColor={currentTheme.textMuted}
                   value={friendSearchQuery}
                   onChangeText={setFriendSearchQuery}
                 />
@@ -875,7 +898,11 @@ const ChatsScreen = ({ navigation }) => {
                 return (
                   <TouchableOpacity
                     key={`select_${f._id}`}
-                    style={[styles.friendSelectRow, isSelected && styles.friendSelectRowActive]}
+                    style={[
+                      styles.friendSelectRow,
+                      { borderBottomColor: currentTheme.border },
+                      isSelected && (themeMode === 'dark' ? { backgroundColor: '#0F2D37' } : styles.friendSelectRowActive),
+                    ]}
                     activeOpacity={0.7}
                     onPress={() => toggleSelectFriend(f._id)}
                   >
@@ -891,8 +918,8 @@ const ChatsScreen = ({ navigation }) => {
                     </View>
 
                     <View style={styles.friendSelectInfo}>
-                      <Text style={styles.friendSelectName}>{f.fullName}</Text>
-                      <Text style={styles.friendSelectAbout} numberOfLines={1}>
+                      <Text style={[styles.friendSelectName, { color: currentTheme.textPrimary }]}>{f.fullName}</Text>
+                      <Text style={[styles.friendSelectAbout, { color: currentTheme.textSecondary }]} numberOfLines={1}>
                         {f.isOnline ? 'Online now' : f.about || 'PulseChat User'}
                       </Text>
                     </View>
@@ -900,6 +927,7 @@ const ChatsScreen = ({ navigation }) => {
                     <View
                       style={[
                         styles.checkboxCircle,
+                        { borderColor: currentTheme.border },
                         isSelected && styles.checkboxCircleChecked,
                       ]}
                     >

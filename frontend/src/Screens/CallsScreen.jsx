@@ -11,10 +11,13 @@ import {
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { theme, getApi } from '../Services/helper';
+import { theme, getApi, getThemeColors } from '../Services/helper';
 
 const CallsScreen = ({ navigation }) => {
   const { user } = useSelector((state) => state.auth);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
+
   const [callLogs, setCallLogs] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -67,7 +70,7 @@ const CallsScreen = ({ navigation }) => {
     const isMissed = item.callStatus === 'missed' || item.callStatus === 'declined';
 
     return (
-      <View style={styles.callRow}>
+      <View style={[styles.callRow, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
         <View style={styles.avatarWrap}>
           {contact?.profilePic ? (
             <Image source={{ uri: contact.profilePic }} style={styles.avatar} />
@@ -80,7 +83,11 @@ const CallsScreen = ({ navigation }) => {
 
         <View style={styles.callDetails}>
           <Text
-            style={[styles.callerName, isMissed && !isOutgoing && styles.missedName]}
+            style={[
+              styles.callerName,
+              { color: currentTheme.textPrimary },
+              isMissed && !isOutgoing && styles.missedName,
+            ]}
             numberOfLines={1}
           >
             {contact?.fullName || 'Contact'}
@@ -96,7 +103,7 @@ const CallsScreen = ({ navigation }) => {
               <Ionicons name="arrow-down" size={14} color="#10B981" style={styles.arrowIcon} />
             )}
 
-            <Text style={styles.callTime}>
+            <Text style={[styles.callTime, { color: currentTheme.textSecondary }]}>
               {formatCallTime(item.createdAt)} {formatDuration(item.callDuration)}
             </Text>
           </View>
@@ -123,7 +130,7 @@ const CallsScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
@@ -146,11 +153,11 @@ const CallsScreen = ({ navigation }) => {
         }
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
-              <Ionicons name="call-outline" size={44} color="#64748B" />
+            <View style={[styles.emptyIconCircle, { backgroundColor: themeMode === 'dark' ? '#112A26' : '#F1F5F9' }]}>
+              <Ionicons name="call-outline" size={44} color={currentTheme.textSecondary} />
             </View>
-            <Text style={styles.emptyText}>No Call History</Text>
-            <Text style={styles.emptySubtext}>
+            <Text style={[styles.emptyText, { color: currentTheme.textPrimary }]}>No Call History</Text>
+            <Text style={[styles.emptySubtext, { color: currentTheme.textSecondary }]}>
               All incoming, outgoing, and video call logs will be recorded here automatically.
             </Text>
           </View>

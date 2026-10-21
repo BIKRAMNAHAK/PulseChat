@@ -20,7 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Video from 'react-native-video';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { fetchStatusesAction, uploadStatusAction } from '../Services/Actions/chatActions';
-import { theme, postApi, deleteApi, getImageUrl } from '../Services/helper';
+import { theme, postApi, deleteApi, getImageUrl, getThemeColors } from '../Services/helper';
 
 const { width } = Dimensions.get('window');
 
@@ -38,6 +38,8 @@ const StatusScreen = () => {
   const dispatch = useDispatch();
   const { user } = useSelector((state) => state.auth);
   const { statuses } = useSelector((state) => state.chat);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
 
   const myStatuses = statuses?.myStatuses || [];
   const friendsStatuses = statuses?.friendsStatuses || [];
@@ -246,7 +248,7 @@ const StatusScreen = () => {
   const currentStory = viewerStories[currentStoryIndex];
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
@@ -256,7 +258,7 @@ const StatusScreen = () => {
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* MY STATUS SECTION */}
-        <View style={styles.myStatusCard}>
+        <View style={[styles.myStatusCard, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
           <TouchableOpacity
             style={styles.myStatusMainRow}
             activeOpacity={0.8}
@@ -291,8 +293,8 @@ const StatusScreen = () => {
             </View>
 
             <View style={styles.statusTextWrap}>
-              <Text style={styles.statusUserName}>My Status</Text>
-              <Text style={styles.statusSubtext}>
+              <Text style={[styles.statusUserName, { color: currentTheme.textPrimary }]}>My Status</Text>
+              <Text style={[styles.statusSubtext, { color: currentTheme.textSecondary }]}>
                 {myStatuses.length > 0
                   ? `${myStatuses.length} updates • Tap to view`
                   : 'Tap to add status update'}
@@ -301,10 +303,10 @@ const StatusScreen = () => {
 
             {/* Quick action buttons on My Status card */}
             <View style={styles.myStatusActions}>
-              <TouchableOpacity style={styles.actionIconBtn} onPress={() => setTextModalVisible(true)}>
+              <TouchableOpacity style={[styles.actionIconBtn, { backgroundColor: themeMode === 'dark' ? '#1F2C34' : '#F1F5F9' }]} onPress={() => setTextModalVisible(true)}>
                 <Ionicons name="pencil" size={19} color={theme.accent} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.actionIconBtn} onPress={pickFromGallery}>
+              <TouchableOpacity style={[styles.actionIconBtn, { backgroundColor: themeMode === 'dark' ? '#1F2C34' : '#F1F5F9' }]} onPress={pickFromGallery}>
                 <Ionicons name="camera" size={20} color={theme.accent} />
               </TouchableOpacity>
             </View>
@@ -313,7 +315,7 @@ const StatusScreen = () => {
           {/* If user has multiple statuses: Show updates summary strip */}
           {myStatuses.length > 0 && (
             <View style={styles.myUpdatesStrip}>
-              <Text style={styles.myUpdatesStripTitle}>Your Active Stories ({myStatuses.length}):</Text>
+              <Text style={[styles.myUpdatesStripTitle, { color: currentTheme.textSecondary }]}>Your Active Stories ({myStatuses.length}):</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.myStoriesScroll}>
                 {myStatuses.map((st, idx) => (
                   <TouchableOpacity
@@ -351,7 +353,7 @@ const StatusScreen = () => {
 
         {/* Section Divider */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Recent updates from friends</Text>
+          <Text style={[styles.sectionTitle, { color: currentTheme.textSecondary }]}>Recent updates from friends</Text>
         </View>
 
         {/* FRIENDS MULTI-STORIES LIST */}
@@ -359,7 +361,7 @@ const StatusScreen = () => {
           friendsStatuses.map((item) => (
             <TouchableOpacity
               key={item.user?._id}
-              style={styles.statusRow}
+              style={[styles.statusRow, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}
               activeOpacity={0.8}
               onPress={() => openStoryViewer(item.stories, item.user, false)}
             >
@@ -389,8 +391,8 @@ const StatusScreen = () => {
               </View>
 
               <View style={styles.statusTextWrap}>
-                <Text style={styles.statusUserName}>{item.user?.fullName}</Text>
-                <Text style={styles.statusSubtext}>
+                <Text style={[styles.statusUserName, { color: currentTheme.textPrimary }]}>{item.user?.fullName}</Text>
+                <Text style={[styles.statusSubtext, { color: currentTheme.textSecondary }]}>
                   {item.stories?.length > 1 ? `${item.stories.length} updates • ` : ''}
                   {formatStoryTime(item.latestStory?.createdAt)}
                 </Text>
@@ -401,9 +403,9 @@ const StatusScreen = () => {
           ))
         ) : (
           <View style={styles.emptyStatus}>
-            <Ionicons name="time-outline" size={42} color="#CBD5E1" />
-            <Text style={styles.emptyText}>No recent updates from friends</Text>
-            <Text style={styles.emptySubtext}>
+            <Ionicons name="time-outline" size={42} color={currentTheme.textMuted} />
+            <Text style={[styles.emptyText, { color: currentTheme.textPrimary }]}>No recent updates from friends</Text>
+            <Text style={[styles.emptySubtext, { color: currentTheme.textSecondary }]}>
               When accepted mutual friends post photos, videos, or text stories, they will appear here for 24 hours.
             </Text>
           </View>
@@ -413,11 +415,11 @@ const StatusScreen = () => {
       {/* Floating Action Buttons */}
       <View style={styles.fabColumn}>
         <TouchableOpacity
-          style={styles.fabSmall}
+          style={[styles.fabSmall, { backgroundColor: themeMode === 'dark' ? '#1F2C34' : '#F1F5F9' }]}
           onPress={() => setTextModalVisible(true)}
           activeOpacity={0.85}
         >
-          <Ionicons name="pencil" size={20} color="#0F2D37" />
+          <Ionicons name="pencil" size={20} color={themeMode === 'dark' ? '#FFFFFF' : '#0F2D37'} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -437,13 +439,13 @@ const StatusScreen = () => {
         onRequestClose={() => setMediaModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, { backgroundColor: currentTheme.card }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
+              <Text style={[styles.modalTitle, { color: currentTheme.textPrimary }]}>
                 {selectedAsset?.type?.includes('video') ? 'Share Video Status' : 'Share Photo Status'}
               </Text>
               <TouchableOpacity onPress={() => setMediaModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#64748B" />
+                <Ionicons name="close" size={24} color={currentTheme.textSecondary} />
               </TouchableOpacity>
             </View>
 
@@ -475,11 +477,11 @@ const StatusScreen = () => {
             ) : null}
 
             {/* Caption Input */}
-            <View style={styles.captionWrap}>
+            <View style={[styles.captionWrap, { backgroundColor: currentTheme.inputBackground }]}>
               <TextInput
-                style={styles.captionInput}
+                style={[styles.captionInput, { color: currentTheme.textPrimary }]}
                 placeholder="Add a caption..."
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={currentTheme.textMuted}
                 value={caption}
                 onChangeText={setCaption}
               />
@@ -710,35 +712,35 @@ const StatusScreen = () => {
             onRequestClose={() => setViewersSheetVisible(false)}
           >
             <View style={styles.sheetOverlay}>
-              <View style={styles.sheetContent}>
+              <View style={[styles.sheetContent, { backgroundColor: currentTheme.card }]}>
                 <View style={styles.sheetHeader}>
-                  <Text style={styles.sheetTitle}>
+                  <Text style={[styles.sheetTitle, { color: currentTheme.textPrimary }]}>
                     Viewed by {currentStory?.viewers?.length || 0}
                   </Text>
                   <TouchableOpacity onPress={() => setViewersSheetVisible(false)}>
-                    <Ionicons name="close" size={24} color="#64748B" />
+                    <Ionicons name="close" size={24} color={currentTheme.textSecondary} />
                   </TouchableOpacity>
                 </View>
 
                 <ScrollView style={styles.sheetList}>
                   {currentStory?.viewers && currentStory.viewers.length > 0 ? (
                     currentStory.viewers.map((v, i) => (
-                      <View key={i} style={styles.viewerRow}>
+                      <View key={i} style={[styles.viewerRow, { borderBottomColor: currentTheme.border }]}>
                         <View style={styles.viewerAvatar}>
                           <Text style={styles.viewerAvatarText}>
                             {v.user?.fullName?.charAt(0) || 'U'}
                           </Text>
                         </View>
                         <View style={styles.viewerInfo}>
-                          <Text style={styles.viewerName}>{v.user?.fullName || 'Contact'}</Text>
-                          <Text style={styles.viewerSeenTime}>
+                          <Text style={[styles.viewerName, { color: currentTheme.textPrimary }]}>{v.user?.fullName || 'Contact'}</Text>
+                          <Text style={[styles.viewerSeenTime, { color: currentTheme.textSecondary }]}>
                             {formatStoryTime(v.viewedAt)}
                           </Text>
                         </View>
                       </View>
                     ))
                   ) : (
-                    <Text style={styles.noViewersText}>No views yet</Text>
+                    <Text style={[styles.noViewersText, { color: currentTheme.textSecondary }]}>No views yet</Text>
                   )}
                 </ScrollView>
               </View>

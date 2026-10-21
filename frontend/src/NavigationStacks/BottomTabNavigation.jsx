@@ -11,7 +11,7 @@ import DiscoverScreen from '../Screens/DiscoverScreen';
 import CallsScreen from '../Screens/CallsScreen';
 import { fetchRequestsAction } from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
-import { theme } from '../Services/helper';
+import { theme, getThemeColors } from '../Services/helper';
 
 import VideoCallModal from '../Components/VideoCallModal';
 
@@ -27,9 +27,20 @@ const ICONS = {
 const CustomTabBar = ({ state, descriptors, navigation }) => {
   const insets = useSafeAreaInsets();
   const { incomingRequests = [] } = useSelector((state) => state.chat);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
 
   return (
-    <View style={[styles.bar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 8 }]}>
+    <View
+      style={[
+        styles.bar,
+        {
+          backgroundColor: currentTheme.tabBarBg,
+          borderTopColor: currentTheme.tabBarBorder,
+          paddingBottom: insets.bottom > 0 ? insets.bottom : 8,
+        },
+      ]}
+    >
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
         const label = options.tabBarLabel ?? options.title ?? route.name;
@@ -62,7 +73,7 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
               <Ionicons
                 name={isFocused ? activeIcon : inactiveIcon}
                 size={22}
-                color={isFocused ? theme.accent : '#94A3B8'}
+                color={isFocused ? theme.accent : currentTheme.tabInactive}
               />
               {showBadge && (
                 <View style={styles.tabBadge}>
@@ -73,7 +84,7 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
             <Text
               style={[
                 styles.label,
-                { color: isFocused ? theme.accent : '#94A3B8', fontWeight: isFocused ? '700' : '500' },
+                { color: isFocused ? theme.accent : currentTheme.tabInactive, fontWeight: isFocused ? '700' : '500' },
               ]}
               numberOfLines={1}
             >

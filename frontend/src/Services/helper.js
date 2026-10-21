@@ -83,7 +83,7 @@ export const deleteApi = async (url = '', data = {}) => {
    ===================================================== */
 export const darkTheme = {
   mode: 'dark',
-  primary: '#0B2228',         // Deep Obsidian Teal
+  primary: '#0B2228',         // Deep Obsidian Teal Header
   primaryDark: '#07161A',     // Status bar
   primaryLight: '#143842',
   accent: '#00C49F',          // Vibrant Emerald Mint
@@ -92,9 +92,10 @@ export const darkTheme = {
   background: '#0B141B',      // Dark background
   card: '#111B21',            // Dark card
   surface: '#182229',
-  border: '#222E35',
+  border: '#1F2C34',
 
-  // Chat Bubbles
+  // Chat Wallpaper & Bubbles
+  wallpaperBg: '#0B141B',
   senderBubble: '#005C4B',
   outgoingBubble: '#005C4B',
   receiverBubble: '#202C33',
@@ -102,16 +103,23 @@ export const darkTheme = {
   chatBackground: '#0B141B',
   chatBackgroundAlt: '#111B21',
 
-  // Text
-  textPrimary: '#E9EDEF',
-  textSecondary: '#8696A0',
+  // Text - HIGH CONTRAST WHITE & LIGHT COLORS FOR DARK MODE
+  textPrimary: '#FFFFFF',
+  textSecondary: '#CBD5E1',
   textLight: '#FFFFFF',
-  textMuted: '#667781',
+  textMuted: '#94A3B8',
+  messageText: '#FFFFFF',
+  myMessageText: '#FFFFFF',
+  theirMessageText: '#FFFFFF',
+  bubbleTime: '#CBD5E1',
 
   // Inputs
-  inputBackground: '#202C33',
+  inputContainerBg: '#111B21',
+  inputBarBg: '#1F2C34',
+  inputBackground: '#1F2C34',
   inputBorder: '#2A3942',
-  inputText: '#E9EDEF',
+  inputText: '#FFFFFF',
+  inputPlaceholder: '#94A3B8',
 
   // Read Receipts & Indicators
   tickSent: '#8696A0',
@@ -125,6 +133,10 @@ export const darkTheme = {
 
   statusUnviewed: '#00C49F',
   statusViewed: '#8696A0',
+
+  tabBarBg: '#0B141B',
+  tabBarBorder: '#1F2C34',
+  tabInactive: '#94A3B8',
 };
 
 export const lightTheme = {
@@ -140,7 +152,8 @@ export const lightTheme = {
   surface: '#FFFFFF',
   border: '#E2E8F0',
 
-  // Chat Bubbles
+  // Chat Wallpaper & Bubbles
+  wallpaperBg: '#EFEAE2',
   senderBubble: '#E2F7F2',
   outgoingBubble: '#E2F7F2',
   receiverBubble: '#FFFFFF',
@@ -149,15 +162,22 @@ export const lightTheme = {
   chatBackgroundAlt: '#F3F5F7',
 
   // Text
-  textPrimary: '#111B21',
-  textSecondary: '#667781',
+  textPrimary: '#0F172A',
+  textSecondary: '#64748B',
   textLight: '#FFFFFF',
-  textMuted: '#8696A0',
+  textMuted: '#94A3B8',
+  messageText: '#0F172A',
+  myMessageText: '#0F172A',
+  theirMessageText: '#0F172A',
+  bubbleTime: '#64748B',
 
   // Inputs
+  inputContainerBg: '#F1F5F9',
+  inputBarBg: '#FFFFFF',
   inputBackground: '#F1F5F9',
   inputBorder: '#E2E8F0',
-  inputText: '#111B21',
+  inputText: '#0F172A',
+  inputPlaceholder: '#94A3B8',
 
   // Read Receipts & Indicators
   tickSent: '#8696A0',
@@ -171,6 +191,10 @@ export const lightTheme = {
 
   statusUnviewed: '#00C49F',
   statusViewed: '#8696A0',
+
+  tabBarBg: '#FFFFFF',
+  tabBarBorder: '#E2E8F0',
+  tabInactive: '#64748B',
 };
 
 // Default export alias for backward compatibility

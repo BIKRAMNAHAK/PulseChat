@@ -22,12 +22,14 @@ import {
   rejectRequestAction,
 } from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
-import { theme } from '../Services/helper';
+import { theme, getThemeColors } from '../Services/helper';
 
 const DiscoverScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { suggestions, incomingRequests, sentRequests } = useSelector((state) => state.chat);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadingActionId, setLoadingActionId] = useState(null);
@@ -117,7 +119,7 @@ const DiscoverScreen = ({ navigation }) => {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
@@ -126,18 +128,18 @@ const DiscoverScreen = ({ navigation }) => {
       </View>
 
       {/* Search Bar */}
-      <View style={styles.searchBarWrap}>
-        <Ionicons name="search" size={18} color="#64748B" style={{ marginRight: 8 }} />
+      <View style={[styles.searchBarWrap, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
+        <Ionicons name="search" size={18} color={currentTheme.textMuted} style={{ marginRight: 8 }} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: currentTheme.textPrimary, backgroundColor: currentTheme.inputBackground }]}
           placeholder="Search by name or location..."
-          placeholderTextColor="#94A3B8"
+          placeholderTextColor={currentTheme.textMuted}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
         {searchQuery ? (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={18} color="#94A3B8" />
+            <Ionicons name="close-circle" size={18} color={currentTheme.textMuted} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -161,16 +163,16 @@ const DiscoverScreen = ({ navigation }) => {
               <View style={styles.sectionWrap}>
                 <View style={styles.sectionHeader}>
                   <Ionicons name="notifications" size={18} color={theme.accent} />
-                  <Text style={styles.sectionTitle}>
+                  <Text style={[styles.sectionTitle, { color: currentTheme.textPrimary }]}>
                     Friend Requests ({incomingRequests.length})
                   </Text>
                 </View>
-                <Text style={styles.sectionSubtitle}>
+                <Text style={[styles.sectionSubtitle, { color: currentTheme.textSecondary }]}>
                   Accept request to open and enable chat
                 </Text>
 
                 {incomingRequests.map((req) => (
-                  <View key={req._id} style={styles.requestCard}>
+                  <View key={req._id} style={[styles.requestCard, { backgroundColor: currentTheme.card, borderColor: currentTheme.border }]}>
                     <View style={styles.avatarWrap}>
                       {req.sender?.profilePic ? (
                         <Image source={{ uri: req.sender.profilePic }} style={styles.avatar} />
@@ -184,8 +186,8 @@ const DiscoverScreen = ({ navigation }) => {
                     </View>
 
                     <View style={styles.reqDetails}>
-                      <Text style={styles.reqName}>{req.sender?.fullName}</Text>
-                      <Text style={styles.reqAbout} numberOfLines={1}>
+                      <Text style={[styles.reqName, { color: currentTheme.textPrimary }]}>{req.sender?.fullName}</Text>
+                      <Text style={[styles.reqAbout, { color: currentTheme.textSecondary }]} numberOfLines={1}>
                         {req.sender?.about || 'Wants to connect with you'}
                       </Text>
                     </View>
@@ -224,9 +226,9 @@ const DiscoverScreen = ({ navigation }) => {
             {/* Suggestions Header */}
             <View style={styles.sectionHeader}>
               <Ionicons name="people" size={18} color={theme.accent} />
-              <Text style={styles.sectionTitle}>Registered People Suggestions</Text>
+              <Text style={[styles.sectionTitle, { color: currentTheme.textPrimary }]}>Registered People Suggestions</Text>
             </View>
-            <Text style={styles.sectionSubtitle}>
+            <Text style={[styles.sectionSubtitle, { color: currentTheme.textSecondary }]}>
               Connect with users to start chatting and video calling
             </Text>
           </>
@@ -239,7 +241,7 @@ const DiscoverScreen = ({ navigation }) => {
           const isReceived = item.connectionStatus === 'received';
 
           return (
-            <View style={styles.suggestionCard}>
+            <View style={[styles.suggestionCard, { backgroundColor: currentTheme.card, borderColor: currentTheme.border }]}>
               <View style={styles.avatarWrap}>
                 {item.profilePic ? (
                   <Image source={{ uri: item.profilePic }} style={styles.avatar} />
@@ -254,7 +256,7 @@ const DiscoverScreen = ({ navigation }) => {
               </View>
 
               <View style={styles.suggestDetails}>
-                <Text style={styles.suggestName}>{item.fullName}</Text>
+                <Text style={[styles.suggestName, { color: currentTheme.textPrimary }]}>{item.fullName}</Text>
                 {item.address?.city || item.address?.formattedAddress ? (
                   <View style={styles.locationRow}>
                     <Ionicons name="location-outline" size={12} color="#00C49F" />
@@ -263,7 +265,7 @@ const DiscoverScreen = ({ navigation }) => {
                     </Text>
                   </View>
                 ) : null}
-                <Text style={styles.suggestAbout} numberOfLines={1}>
+                <Text style={[styles.suggestAbout, { color: currentTheme.textSecondary }]} numberOfLines={1}>
                   {item.about || 'Available'}
                 </Text>
               </View>
@@ -302,9 +304,9 @@ const DiscoverScreen = ({ navigation }) => {
                 </View>
               ) : isPending ? (
                 /* Pending Request state */
-                <View style={styles.pendingBadge}>
-                  <Ionicons name="time" size={13} color="#64748B" />
-                  <Text style={styles.pendingText}>Pending ⏳</Text>
+                <View style={[styles.pendingBadge, { backgroundColor: currentTheme.inputBackground, borderColor: currentTheme.border }]}>
+                  <Ionicons name="time" size={13} color={currentTheme.textSecondary} />
+                  <Text style={[styles.pendingText, { color: currentTheme.textSecondary }]}>Pending ⏳</Text>
                 </View>
               ) : (
                 /* Add Friend */
@@ -329,8 +331,8 @@ const DiscoverScreen = ({ navigation }) => {
         }}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={44} color="#CBD5E1" />
-            <Text style={styles.emptyText}>No suggestions found</Text>
+            <Ionicons name="people-outline" size={44} color={currentTheme.textMuted} />
+            <Text style={[styles.emptyText, { color: currentTheme.textSecondary }]}>No suggestions found</Text>
           </View>
         }
       />

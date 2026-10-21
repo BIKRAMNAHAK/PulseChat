@@ -33,7 +33,7 @@ import {
 } from '../Services/Actions/chatActions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../Services/socketService';
-import { theme, postApi, getImageUrl } from '../Services/helper';
+import { theme, postApi, getImageUrl, getThemeColors } from '../Services/helper';
 import VideoCallModal from '../Components/VideoCallModal';
 
 const ChatScreen = ({ route, navigation }) => {
@@ -44,6 +44,8 @@ const ChatScreen = ({ route, navigation }) => {
 
   const { user } = useSelector((state) => state.auth);
   const { activeConversation, incomingRequests = [], sentRequests = [] } = useSelector((state) => state.chat);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
 
   const [inputText, setInputText] = useState('');
   const [messages, setMessages] = useState([]);
@@ -591,8 +593,10 @@ const ChatScreen = ({ route, navigation }) => {
           delayLongPress={300}
           style={[
             styles.messageBubble,
-            isMine ? styles.myBubble : styles.theirBubble,
-            isDeleted && styles.deletedBubble,
+            isMine
+              ? [styles.myBubble, { backgroundColor: currentTheme.outgoingBubble }]
+              : [styles.theirBubble, { backgroundColor: currentTheme.incomingBubble }],
+            isDeleted && [styles.deletedBubble, themeMode === 'dark' && { backgroundColor: currentTheme.surface }],
           ]}
         >
           {/* In Group Chat: Show Sender Name on Left Bubble */}
@@ -602,8 +606,8 @@ const ChatScreen = ({ route, navigation }) => {
 
           {isDeleted ? (
             <View style={styles.deletedRow}>
-              <Ionicons name="ban-outline" size={14} color="#64748B" style={{ marginRight: 6 }} />
-              <Text style={styles.deletedText}>This message was deleted</Text>
+              <Ionicons name="ban-outline" size={14} color={currentTheme.textMuted} style={{ marginRight: 6 }} />
+              <Text style={[styles.deletedText, { color: currentTheme.textMuted }]}>This message was deleted</Text>
             </View>
           ) : (
             <>
@@ -628,7 +632,12 @@ const ChatScreen = ({ route, navigation }) => {
 
               {/* Message Text */}
               {item.content ? (
-                <Text style={[styles.messageText, isMine ? styles.myText : styles.theirText]}>
+                <Text
+                  style={[
+                    styles.messageText,
+                    { color: isMine ? currentTheme.myMessageText : currentTheme.theirMessageText },
+                  ]}
+                >
                   {item.content}
                 </Text>
               ) : null}
@@ -638,9 +647,9 @@ const ChatScreen = ({ route, navigation }) => {
           {/* Timestamp, Edited Tag & Seen Tick */}
           <View style={styles.bubbleFooter}>
             {item.isEdited && !isDeleted && (
-              <Text style={styles.editedLabel}>edited</Text>
+              <Text style={[styles.editedLabel, { color: currentTheme.bubbleTime }]}>edited</Text>
             )}
-            <Text style={styles.bubbleTime}>{formatMessageTime(item.createdAt)}</Text>
+            <Text style={[styles.bubbleTime, { color: currentTheme.bubbleTime }]}>{formatMessageTime(item.createdAt)}</Text>
             {isMine && !isGroup && !isDeleted && renderReadTick(item.status)}
           </View>
         </TouchableOpacity>
@@ -768,7 +777,7 @@ const ChatScreen = ({ route, navigation }) => {
             style={styles.menuBackdrop}
             onPress={() => setMenuVisible(false)}
           />
-          <View style={styles.menuDropdown}>
+          <View style={[styles.menuDropdown, { backgroundColor: currentTheme.card }]}>
             {isGroup ? (
               <>
                 <TouchableOpacity
@@ -778,8 +787,8 @@ const ChatScreen = ({ route, navigation }) => {
                     setGroupInfoModal(true);
                   }}
                 >
-                  <Ionicons name="people-outline" size={18} color="#0F172A" />
-                  <Text style={styles.menuItemText}>Group Info</Text>
+                  <Ionicons name="people-outline" size={18} color={currentTheme.textPrimary} />
+                  <Text style={[styles.menuItemText, { color: currentTheme.textPrimary }]}>Group Info</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.menuItem} onPress={handleLeaveGroup}>
                   <Ionicons name="exit-outline" size={18} color="#EF4444" />
@@ -799,8 +808,8 @@ const ChatScreen = ({ route, navigation }) => {
                     setMessages([]);
                   }}
                 >
-                  <Ionicons name="trash-outline" size={18} color="#64748B" />
-                  <Text style={styles.menuItemText}>Clear Chat</Text>
+                  <Ionicons name="trash-outline" size={18} color={currentTheme.textSecondary} />
+                  <Text style={[styles.menuItemText, { color: currentTheme.textPrimary }]}>Clear Chat</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -809,7 +818,7 @@ const ChatScreen = ({ route, navigation }) => {
       )}
 
       {/* Chat Messages List (Wallpaper Background) */}
-      <View style={styles.wallpaperBg}>
+      <View style={[styles.wallpaperBg, { backgroundColor: currentTheme.wallpaperBg }]}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -819,9 +828,19 @@ const ChatScreen = ({ route, navigation }) => {
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           onLayout={() => flatListRef.current?.scrollToEnd({ animated: true })}
           ListHeaderComponent={
-            <View style={styles.encryptedBanner}>
-              <Ionicons name="lock-closed" size={12} color="#64748B" />
-              <Text style={styles.encryptedText}>
+            <View
+              style={[
+                styles.encryptedBanner,
+                themeMode === 'dark' && { backgroundColor: currentTheme.surface, borderWidth: 1, borderColor: currentTheme.border },
+              ]}
+            >
+              <Ionicons name="lock-closed" size={12} color={currentTheme.textMuted} />
+              <Text
+                style={[
+                  styles.encryptedText,
+                  themeMode === 'dark' && { color: currentTheme.textSecondary },
+                ]}
+              >
                 {isGroup
                   ? 'Group messages are end-to-end encrypted among participants.'
                   : 'Messages and calls are end-to-end encrypted and restricted to accepted friends.'}
@@ -836,10 +855,15 @@ const ChatScreen = ({ route, navigation }) => {
         <View
           style={[
             styles.inputContainer,
-            { paddingBottom: keyboardVisible ? 6 : Math.max(insets.bottom, 8) },
+            { backgroundColor: currentTheme.inputContainerBg, paddingBottom: keyboardVisible ? 6 : Math.max(insets.bottom, 8) },
           ]}
         >
-          <View style={styles.inputBar}>
+          <View
+            style={[
+              styles.inputBar,
+              { backgroundColor: currentTheme.inputBarBg, borderColor: currentTheme.border, borderWidth: themeMode === 'dark' ? 1 : 0 },
+            ]}
+          >
             {/* Gallery Image Picker */}
             <TouchableOpacity
               style={styles.attachBtn}
@@ -849,9 +873,9 @@ const ChatScreen = ({ route, navigation }) => {
             </TouchableOpacity>
 
             <TextInput
-              style={styles.chatInput}
+              style={[styles.chatInput, { color: currentTheme.inputText }]}
               placeholder="Message..."
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={currentTheme.inputPlaceholder}
               value={inputText}
               onChangeText={handleInputChange}
               multiline
@@ -970,10 +994,10 @@ const ChatScreen = ({ route, navigation }) => {
           activeOpacity={1}
           onPress={() => setMessageActionModalVisible(false)}
         >
-          <View style={styles.actionSheetContainer}>
+          <View style={[styles.actionSheetContainer, { backgroundColor: currentTheme.card }]}>
             <View style={styles.dragHandle} />
             <View style={styles.actionSheetHeader}>
-              <Text style={styles.actionSheetTitle}>MESSAGE OPTIONS</Text>
+              <Text style={[styles.actionSheetTitle, { color: currentTheme.textSecondary }]}>MESSAGE OPTIONS</Text>
             </View>
 
             {/* Edit Option: only for sender, if not deleted, and not an image/call log */}
@@ -985,10 +1009,10 @@ const ChatScreen = ({ route, navigation }) => {
                   style={styles.actionSheetItem}
                   onPress={handleStartEdit}
                 >
-                  <View style={[styles.actionIconBox, { backgroundColor: '#E0F2FE' }]}>
-                    <Ionicons name="pencil" size={18} color="#0284C7" />
+                  <View style={[styles.actionIconBox, { backgroundColor: themeMode === 'dark' ? '#0F2D37' : '#E0F2FE' }]}>
+                    <Ionicons name="pencil" size={18} color={theme.accent} />
                   </View>
-                  <Text style={styles.actionSheetText}>Edit Message</Text>
+                  <Text style={[styles.actionSheetText, { color: currentTheme.textPrimary }]}>Edit Message</Text>
                 </TouchableOpacity>
               )}
 
@@ -1000,10 +1024,10 @@ const ChatScreen = ({ route, navigation }) => {
                   style={styles.actionSheetItem}
                   onPress={handleDeleteForEveryone}
                 >
-                  <View style={[styles.actionIconBox, { backgroundColor: '#FEE2E2' }]}>
-                    <Ionicons name="trash-outline" size={18} color="#DC2626" />
+                  <View style={[styles.actionIconBox, { backgroundColor: themeMode === 'dark' ? '#3B1219' : '#FEE2E2' }]}>
+                    <Ionicons name="trash-outline" size={18} color="#EF4444" />
                   </View>
-                  <Text style={[styles.actionSheetText, { color: '#DC2626' }]}>
+                  <Text style={[styles.actionSheetText, { color: '#EF4444' }]}>
                     Delete for Everyone
                   </Text>
                 </TouchableOpacity>
@@ -1014,10 +1038,10 @@ const ChatScreen = ({ route, navigation }) => {
               style={styles.actionSheetItem}
               onPress={handleDeleteForMe}
             >
-              <View style={[styles.actionIconBox, { backgroundColor: '#F1F5F9' }]}>
-                <Ionicons name="trash-bin-outline" size={18} color="#475569" />
+              <View style={[styles.actionIconBox, { backgroundColor: themeMode === 'dark' ? '#1F2C34' : '#F1F5F9' }]}>
+                <Ionicons name="trash-bin-outline" size={18} color={currentTheme.textSecondary} />
               </View>
-              <Text style={styles.actionSheetText}>Delete for Me</Text>
+              <Text style={[styles.actionSheetText, { color: currentTheme.textPrimary }]}>Delete for Me</Text>
             </TouchableOpacity>
 
             {/* Cancel Button */}
@@ -1025,7 +1049,7 @@ const ChatScreen = ({ route, navigation }) => {
               style={[styles.actionSheetItem, styles.cancelActionItem]}
               onPress={() => setMessageActionModalVisible(false)}
             >
-              <Text style={styles.cancelActionText}>Cancel</Text>
+              <Text style={[styles.cancelActionText, { color: currentTheme.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -1042,22 +1066,22 @@ const ChatScreen = ({ route, navigation }) => {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalOverlay}
         >
-          <View style={styles.editModalContainer}>
+          <View style={[styles.editModalContainer, { backgroundColor: currentTheme.card }]}>
             <View style={styles.editModalHeader}>
-              <Text style={styles.editModalTitle}>Edit Message</Text>
+              <Text style={[styles.editModalTitle, { color: currentTheme.textPrimary }]}>Edit Message</Text>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close" size={22} color="#64748B" />
+                <Ionicons name="close" size={22} color={currentTheme.textSecondary} />
               </TouchableOpacity>
             </View>
 
             <TextInput
-              style={styles.editTextInput}
+              style={[styles.editTextInput, { backgroundColor: currentTheme.inputBackground, color: currentTheme.textPrimary }]}
               value={editingText}
               onChangeText={setEditingText}
               multiline
               autoFocus
               placeholder="Edit your message..."
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor={currentTheme.textMuted}
             />
 
             <View style={styles.editModalBtnRow}>
@@ -1065,7 +1089,7 @@ const ChatScreen = ({ route, navigation }) => {
                 style={styles.editCancelBtn}
                 onPress={() => setEditModalVisible(false)}
               >
-                <Text style={styles.editCancelText}>Cancel</Text>
+                <Text style={[styles.editCancelText, { color: currentTheme.textSecondary }]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.editSaveBtn}
@@ -1090,7 +1114,7 @@ const ChatScreen = ({ route, navigation }) => {
           animationType="slide"
           onRequestClose={() => setGroupInfoModal(false)}
         >
-          <View style={styles.groupModalContainer}>
+          <View style={[styles.groupModalContainer, { backgroundColor: currentTheme.background }]}>
             <View style={styles.groupModalHeader}>
               <TouchableOpacity onPress={() => setGroupInfoModal(false)}>
                 <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
@@ -1104,23 +1128,23 @@ const ChatScreen = ({ route, navigation }) => {
                 {group.groupPic ? (
                   <Image source={{ uri: group.groupPic }} style={styles.groupModalAvatar} />
                 ) : (
-                  <View style={styles.groupModalAvatarPlaceholder}>
+                  <View style={[styles.groupModalAvatarPlaceholder, { backgroundColor: '#0B2228' }]}>
                     <Ionicons name="people" size={48} color={theme.accent} />
                   </View>
                 )}
-                <Text style={styles.groupModalName}>{group.name}</Text>
-                <Text style={styles.groupModalSubtitle}>
+                <Text style={[styles.groupModalName, { color: currentTheme.textPrimary }]}>{group.name}</Text>
+                <Text style={[styles.groupModalSubtitle, { color: currentTheme.textSecondary }]}>
                   Group • {group.members?.length || 0} participants
                 </Text>
                 {group.description ? (
-                  <Text style={styles.groupModalDesc}>{group.description}</Text>
+                  <Text style={[styles.groupModalDesc, { color: currentTheme.textSecondary }]}>{group.description}</Text>
                 ) : null}
               </View>
 
               <View style={styles.groupMembersSection}>
-                <Text style={styles.groupMembersTitle}>PARTICIPANTS</Text>
+                <Text style={[styles.groupMembersTitle, { color: currentTheme.textSecondary }]}>PARTICIPANTS</Text>
                 {group.members?.map((member) => (
-                  <View key={member._id} style={styles.memberRow}>
+                  <View key={member._id} style={[styles.memberRow, { borderBottomColor: currentTheme.border }]}>
                     <View style={styles.memberAvatarWrap}>
                       {member.profilePic ? (
                         <Image source={{ uri: member.profilePic }} style={styles.memberAvatar} />
@@ -1132,10 +1156,10 @@ const ChatScreen = ({ route, navigation }) => {
                       {member.isOnline && <View style={styles.onlineDot} />}
                     </View>
                     <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>
+                      <Text style={[styles.memberName, { color: currentTheme.textPrimary }]}>
                         {member.fullName} {member._id === user?._id ? '(You)' : ''}
                       </Text>
-                      <Text style={styles.memberStatus}>
+                      <Text style={[styles.memberStatus, { color: currentTheme.textSecondary }]}>
                         {member.isOnline ? 'Online' : 'Offline'}
                       </Text>
                     </View>
