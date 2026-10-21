@@ -30,13 +30,16 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import socketService from '../Services/socketService';
-import { theme, getImageUrl } from '../Services/helper';
+import { theme, getImageUrl, getThemeColors } from '../Services/helper';
+import { TOGGLE_THEME } from '../Services/Reducers/themeReducer';
 
 const ChatsScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { friends, groups = [], incomingRequests = [] } = useSelector((state) => state.chat);
   const { user } = useSelector((state) => state.auth);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
 
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -326,7 +329,7 @@ const ChatsScreen = ({ navigation }) => {
     return (
       <TouchableOpacity
         key={`direct_${item._id}`}
-        style={styles.chatRow}
+        style={[styles.chatRow, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}
         activeOpacity={0.7}
         onPress={() => {
           dispatch(clearUnreadCountAction(item._id));
@@ -357,7 +360,7 @@ const ChatsScreen = ({ navigation }) => {
         <View style={styles.chatDetails}>
           <View style={styles.topRow}>
             <View style={styles.nameWithStatusRow}>
-              <Text style={styles.userName} numberOfLines={1}>
+              <Text style={[styles.userName, { color: currentTheme.textPrimary }]} numberOfLines={1}>
                 {item.fullName}
               </Text>
               {item.isOnline && (
@@ -366,7 +369,7 @@ const ChatsScreen = ({ navigation }) => {
                 </View>
               )}
             </View>
-            <Text style={styles.timeText}>{formatTime(item.lastMessage?.createdAt)}</Text>
+            <Text style={[styles.timeText, { color: currentTheme.textMuted }]}>{formatTime(item.lastMessage?.createdAt)}</Text>
           </View>
 
           <View style={styles.bottomRow}>
@@ -375,7 +378,7 @@ const ChatsScreen = ({ navigation }) => {
               {item.lastMessage?.messageType === 'image' && (
                 <Ionicons name="image-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
               )}
-              <Text style={styles.lastMessage} numberOfLines={1}>
+              <Text style={[styles.lastMessage, { color: currentTheme.textSecondary }]} numberOfLines={1}>
                 {item.lastMessage?.content ||
                   (item.lastMessage?.messageType === 'image' ? 'Photo' : item.about || 'Start conversation')}
               </Text>
@@ -413,7 +416,7 @@ const ChatsScreen = ({ navigation }) => {
     return (
       <TouchableOpacity
         key={`group_${grp._id}`}
-        style={styles.chatRow}
+        style={[styles.chatRow, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}
         activeOpacity={0.7}
         onPress={() => {
           navigation.navigate('Chat', {
@@ -439,7 +442,7 @@ const ChatsScreen = ({ navigation }) => {
         <View style={styles.chatDetails}>
           <View style={styles.topRow}>
             <View style={styles.nameWithStatusRow}>
-              <Text style={styles.userName} numberOfLines={1}>
+              <Text style={[styles.userName, { color: currentTheme.textPrimary }]} numberOfLines={1}>
                 {grp.name}
               </Text>
               <View style={styles.groupMemberCountTag}>
@@ -448,13 +451,13 @@ const ChatsScreen = ({ navigation }) => {
                 </Text>
               </View>
             </View>
-            <Text style={styles.timeText}>{formatTime(grp.lastMessage?.createdAt || grp.updatedAt)}</Text>
+            <Text style={[styles.timeText, { color: currentTheme.textMuted }]}>{formatTime(grp.lastMessage?.createdAt || grp.updatedAt)}</Text>
           </View>
 
           <View style={styles.bottomRow}>
             <View style={styles.messagePreviewWrap}>
               <Ionicons name="people-outline" size={14} color="#64748B" style={{ marginRight: 4 }} />
-              <Text style={styles.lastMessage} numberOfLines={1}>
+              <Text style={[styles.lastMessage, { color: currentTheme.textSecondary }]} numberOfLines={1}>
                 {grp.lastMessage?.senderName ? `${grp.lastMessage.senderName}: ` : ''}
                 {grp.lastMessage?.content || 'Tap to start group chat'}
               </Text>
@@ -476,7 +479,7 @@ const ChatsScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Top App Bar */}
@@ -488,6 +491,19 @@ const ChatsScreen = ({ navigation }) => {
           <Text style={styles.brandTitle}>PulseChat</Text>
         </View>
         <View style={styles.topIcons}>
+          {/* Theme Mode Switcher (Dark / Light) */}
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => dispatch({ type: TOGGLE_THEME })}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={themeMode === 'dark' ? 'sunny-outline' : 'moon-outline'}
+              size={21}
+              color="#FFFFFF"
+            />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => setCreateGroupModal(true)}
@@ -514,26 +530,26 @@ const ChatsScreen = ({ navigation }) => {
 
       {/* Search Input Bar (Expandable) */}
       {showSearch && (
-        <View style={styles.searchBarWrap}>
-          <Ionicons name="search" size={18} color="#64748B" style={{ marginRight: 8 }} />
+        <View style={[styles.searchBarWrap, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
+          <Ionicons name="search" size={18} color={currentTheme.textMuted} style={{ marginRight: 8 }} />
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: currentTheme.textPrimary, backgroundColor: currentTheme.inputBackground }]}
             placeholder="Search conversations, friends or groups..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={currentTheme.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoFocus
           />
           {searchQuery ? (
             <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={18} color="#94A3B8" />
+              <Ionicons name="close-circle" size={18} color={currentTheme.textMuted} />
             </TouchableOpacity>
           ) : null}
         </View>
       )}
 
       {/* Filter Tabs: All | Direct | Groups */}
-      <View style={styles.tabFilterRow}>
+      <View style={[styles.tabFilterRow, { backgroundColor: currentTheme.card, borderBottomColor: currentTheme.border }]}>
         <TouchableOpacity
           style={[styles.filterChip, activeTab === 'all' && styles.filterChipActive]}
           onPress={() => setActiveTab('all')}

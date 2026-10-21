@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../Modal/RegisterModal');
+const PendingRegistration = require('../Modal/PendingRegistration');
 const { sendOTPEmail } = require('../db_config/node_mailer');
 
 // Helper to generate a 6-digit OTP
@@ -29,25 +30,34 @@ exports.sendOtp = async (req, res) => {
       });
     }
 
+    const normalizedEmail = email.toLowerCase().trim();
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    let user = await User.findOne({ email: email.toLowerCase().trim() });
+    // Update in PendingRegistration if pending
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail });
+    if (pending) {
+      pending.otp = otp;
+      pending.otpExpires = otpExpires;
+      await pending.save();
+    }
 
+    // Also update in User if exists
+    const user = await User.findOne({ email: normalizedEmail });
     if (user) {
       user.otp = otp;
       user.otpExpires = otpExpires;
       await user.save();
     }
 
-    sendOTPEmail(email, otp).catch((err) =>
+    sendOTPEmail(normalizedEmail, otp).catch((err) =>
       console.warn('Background OTP email send error:', err.message)
     );
 
     return res.status(200).json({
       success: true,
       message: 'OTP has been sent to your email.',
-      email,
+      email: normalizedEmail,
       otp,
       devOtp: otp,
     });
@@ -61,7 +71,7 @@ exports.sendOtp = async (req, res) => {
   }
 };
 
-// 2. Register New User
+// 2. Register New User (Holds in PendingRegistration until OTP is verified)
 // Required fields: fullName, mobileNumber, email, password, confirmPassword, profilePic (optional), address (autofetched)
 exports.register = async (req, res) => {
   try {
@@ -104,21 +114,18 @@ exports.register = async (req, res) => {
     const normalizedEmail = email.toLowerCase().trim();
     const normalizedMobile = mobileNumber.trim();
 
-    // Check if email already registered
-    const existingEmail = await User.findOne({ email: normalizedEmail });
-    if (existingEmail && existingEmail.isVerified) {
+    // Check if email already registered and verified in User collection
+    const existingEmailUser = await User.findOne({ email: normalizedEmail, isVerified: true });
+    if (existingEmailUser) {
       return res.status(400).json({
         success: false,
         message: 'This email is already registered and verified. Please login.',
       });
     }
 
-    // Check if mobile already registered
-    const existingMobile = await User.findOne({
-      mobileNumber: normalizedMobile,
-      _id: { $ne: existingEmail?._id },
-    });
-    if (existingMobile && existingMobile.isVerified) {
+    // Check if mobile already registered and verified in User collection
+    const existingMobileUser = await User.findOne({ mobileNumber: normalizedMobile, isVerified: true });
+    if (existingMobileUser) {
       return res.status(400).json({
         success: false,
         message: 'This mobile number is already registered. Please login.',
@@ -151,29 +158,10 @@ exports.register = async (req, res) => {
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
-    let user;
-    if (existingEmail && !existingEmail.isVerified) {
-      // Update unverified user by email
-      existingEmail.fullName = fullName.trim();
-      existingEmail.mobileNumber = normalizedMobile;
-      existingEmail.password = hashedPassword;
-      if (profilePicPath) existingEmail.profilePic = profilePicPath;
-      existingEmail.address = formattedAddressObj;
-      existingEmail.otp = otp;
-      existingEmail.otpExpires = otpExpires;
-      user = await existingEmail.save();
-    } else if (existingMobile && !existingMobile.isVerified) {
-      // Update unverified user by mobile number (prevents duplicate key error E11000)
-      existingMobile.fullName = fullName.trim();
-      existingMobile.email = normalizedEmail;
-      existingMobile.password = hashedPassword;
-      if (profilePicPath) existingMobile.profilePic = profilePicPath;
-      existingMobile.address = formattedAddressObj;
-      existingMobile.otp = otp;
-      existingMobile.otpExpires = otpExpires;
-      user = await existingMobile.save();
-    } else {
-      user = await User.create({
+    // IMPORTANT: Save to PendingRegistration ONLY - do NOT pollute the User collection!
+    const pending = await PendingRegistration.findOneAndUpdate(
+      { email: normalizedEmail },
+      {
         fullName: fullName.trim(),
         mobileNumber: normalizedMobile,
         email: normalizedEmail,
@@ -182,11 +170,12 @@ exports.register = async (req, res) => {
         address: formattedAddressObj,
         otp,
         otpExpires,
-        isVerified: false,
-      });
-    }
+        createdAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
 
-    // Send OTP to user's email asynchronously (never hangs or blocks registration)
+    // Send OTP to user's email asynchronously
     sendOTPEmail(normalizedEmail, otp).catch((err) =>
       console.warn('Background OTP email send error:', err.message)
     );
@@ -194,20 +183,13 @@ exports.register = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Registration initiated! Please verify the OTP sent to your email.',
-      userId: user._id,
-      email: user.email,
+      userId: pending._id,
+      email: pending.email,
       otp,
       devOtp: otp,
     });
   } catch (error) {
     console.error('Error in register:', error);
-    if (error.code === 11000) {
-      const isMobile = error.message?.includes('mobileNumber');
-      return res.status(400).json({
-        success: false,
-        message: `This ${isMobile ? 'mobile number' : 'email address'} is already in use. Please log in or use another one.`,
-      });
-    }
     return res.status(500).json({
       success: false,
       message: error.message || 'Server error during registration.',
@@ -215,7 +197,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// 3. Verify OTP & Complete Registration
+// 3. Verify OTP & Complete Registration (Creates user in User collection ONLY after OTP is confirmed)
 exports.verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -227,49 +209,103 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'No account found with this email.',
+    const normalizedEmail = email.toLowerCase().trim();
+    const inputOtp = otp.toString().trim();
+
+    // 1. Look for unverified pending registration
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail });
+
+    if (pending) {
+      if (new Date() > new Date(pending.otpExpires)) {
+        return res.status(400).json({
+          success: false,
+          message: 'OTP has expired. Please request a new OTP.',
+        });
+      }
+
+      if (pending.otp !== inputOtp) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid OTP code. Please check and try again.',
+        });
+      }
+
+      // Check if another user registered with same mobile while pending
+      const duplicateMobile = await User.findOne({ mobileNumber: pending.mobileNumber });
+      if (duplicateMobile) {
+        await PendingRegistration.deleteOne({ _id: pending._id });
+        return res.status(400).json({
+          success: false,
+          message: 'This mobile number has already been taken by another account.',
+        });
+      }
+
+      // Create confirmed user in User collection
+      const newUser = await User.create({
+        fullName: pending.fullName,
+        mobileNumber: pending.mobileNumber,
+        email: pending.email,
+        password: pending.password,
+        profilePic: pending.profilePic,
+        address: pending.address,
+        isVerified: true,
+        isOnline: true,
+      });
+
+      // Remove from PendingRegistration
+      await PendingRegistration.deleteOne({ _id: pending._id });
+
+      const token = generateToken(newUser._id);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Account verified successfully!',
+        token,
+        user: newUser,
       });
     }
 
-    if (!user.otp || !user.otpExpires) {
-      return res.status(400).json({
-        success: false,
-        message: 'No pending OTP found. Please request a new OTP.',
-      });
+    // 2. Check if already verified user or legacy unverified user
+    const existingUser = await User.findOne({ email: normalizedEmail });
+    if (existingUser) {
+      if (existingUser.isVerified) {
+        const token = generateToken(existingUser._id);
+        return res.status(200).json({
+          success: true,
+          message: 'Account already verified!',
+          token,
+          user: existingUser,
+        });
+      }
+
+      // Legacy unverified user OTP check
+      if (existingUser.otp && existingUser.otpExpires) {
+        if (new Date() > new Date(existingUser.otpExpires)) {
+          return res.status(400).json({
+            success: false,
+            message: 'OTP has expired. Please request a new OTP.',
+          });
+        }
+        if (existingUser.otp === inputOtp) {
+          existingUser.isVerified = true;
+          existingUser.otp = null;
+          existingUser.otpExpires = null;
+          existingUser.isOnline = true;
+          await existingUser.save();
+          const token = generateToken(existingUser._id);
+          return res.status(200).json({
+            success: true,
+            message: 'Account verified successfully!',
+            token,
+            user: existingUser,
+          });
+        }
+      }
     }
 
-    if (new Date() > new Date(user.otpExpires)) {
-      return res.status(400).json({
-        success: false,
-        message: 'OTP has expired. Please request a new OTP.',
-      });
-    }
-
-    if (user.otp !== otp.toString().trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid OTP code. Please check and try again.',
-      });
-    }
-
-    // Mark as verified
-    user.isVerified = true;
-    user.otp = null;
-    user.otpExpires = null;
-    user.isOnline = true;
-    await user.save();
-
-    const token = generateToken(user._id);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Account verified successfully!',
-      token,
-      user,
+    return res.status(404).json({
+      success: false,
+      message: 'Registration session expired or account not found. Please register again.',
     });
   } catch (error) {
     console.error('Error in verifyOtp:', error);
@@ -292,29 +328,51 @@ exports.resendOtp = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User with this email not found.',
+    const normalizedEmail = email.toLowerCase().trim();
+    const otp = generateOTP();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    const pending = await PendingRegistration.findOne({ email: normalizedEmail });
+    if (pending) {
+      pending.otp = otp;
+      pending.otpExpires = otpExpires;
+      await pending.save();
+
+      sendOTPEmail(normalizedEmail, otp).catch((err) =>
+        console.warn('Background OTP email send error:', err.message)
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'A fresh OTP has been sent to your email.',
+        email: normalizedEmail,
+        otp,
+        devOtp: otp,
       });
     }
 
-    const otp = generateOTP();
-    user.otp = otp;
-    user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
+    const user = await User.findOne({ email: normalizedEmail });
+    if (user) {
+      user.otp = otp;
+      user.otpExpires = otpExpires;
+      await user.save();
 
-    sendOTPEmail(user.email, otp).catch((err) =>
-      console.warn('Background OTP email send error:', err.message)
-    );
+      sendOTPEmail(user.email, otp).catch((err) =>
+        console.warn('Background OTP email send error:', err.message)
+      );
 
-    return res.status(200).json({
-      success: true,
-      message: 'A fresh OTP has been sent to your email.',
-      email: user.email,
-      otp,
-      devOtp: otp,
+      return res.status(200).json({
+        success: true,
+        message: 'A fresh OTP has been sent to your email.',
+        email: user.email,
+        otp,
+        devOtp: otp,
+      });
+    }
+
+    return res.status(404).json({
+      success: false,
+      message: 'No pending registration or account found with this email.',
     });
   } catch (error) {
     console.error('Error in resendOtp:', error);

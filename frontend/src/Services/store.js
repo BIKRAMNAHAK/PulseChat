@@ -7,7 +7,7 @@ import rootReducer from "./Reducers/combineReducer";
 const persistConfig = {
     key: "root",
     storage: AsyncStorage,
-    whitelist: ["auth", "chat"],   
+    whitelist: ["auth", "chat", "theme"],   
 };
 
 const persistedReducer = persistReducer(persistConfig, rootReducer);

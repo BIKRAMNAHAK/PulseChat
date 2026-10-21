@@ -14,6 +14,7 @@ import {
   Alert,
   Modal,
   ScrollView,
+  Keyboard,
 } from 'react-native';
 import { useDispatch, useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -66,9 +67,34 @@ const ChatScreen = ({ route, navigation }) => {
   const [callVisible, setCallVisible] = useState(!!initiateCall && !isGroup);
   const [callType, setCallType] = useState(initiateCall || 'video');
   const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+
+  // Auto-scroll on keyboard popup
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setKeyboardVisible(true);
+        setTimeout(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        }, 80);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardVisible(false);
+      }
+    );
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Deduplicate and append message
   const appendUniqueMessage = (newMsg) => {
@@ -625,8 +651,8 @@ const ChatScreen = ({ route, navigation }) => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 25}
     >
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
@@ -807,7 +833,12 @@ const ChatScreen = ({ route, navigation }) => {
 
       {/* Bottom Input Bar */}
       {canChat ? (
-        <View style={[styles.inputContainer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+        <View
+          style={[
+            styles.inputContainer,
+            { paddingBottom: keyboardVisible ? 6 : Math.max(insets.bottom, 8) },
+          ]}
+        >
           <View style={styles.inputBar}>
             {/* Gallery Image Picker */}
             <TouchableOpacity
@@ -1131,7 +1162,9 @@ const ChatScreen = ({ route, navigation }) => {
         <VideoCallModal
           visible={callVisible}
           callType={callType}
+          targetUser={recipient}
           recipient={recipient}
+          currentUser={user}
           isIncoming={isIncomingCall}
           onClose={() => setCallVisible(false)}
         />

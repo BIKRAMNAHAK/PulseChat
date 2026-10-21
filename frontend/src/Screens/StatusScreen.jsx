@@ -20,7 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import Video from 'react-native-video';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import { fetchStatusesAction, uploadStatusAction } from '../Services/Actions/chatActions';
-import { theme, postApi, deleteApi } from '../Services/helper';
+import { theme, postApi, deleteApi, getImageUrl } from '../Services/helper';
 
 const { width } = Dimensions.get('window');
 
@@ -49,6 +49,7 @@ const StatusScreen = () => {
   const [viewerUser, setViewerUser] = useState(null);
   const [isOwnViewer, setIsOwnViewer] = useState(false);
   const [viewersSheetVisible, setViewersSheetVisible] = useState(false);
+  const [mediaLoading, setMediaLoading] = useState(true);
 
   // Status Creation Modals
   const [mediaModalVisible, setMediaModalVisible] = useState(false);
@@ -70,7 +71,7 @@ const StatusScreen = () => {
     dispatch(fetchStatusesAction());
   }, [dispatch]);
 
-  // Handle Story Auto-advance Timer (5 seconds per story)
+  // Handle Story Auto-advance Timer (5 seconds per story once loaded)
   useEffect(() => {
     if (viewerVisible && viewerStories.length > 0) {
       const activeStory = viewerStories[currentStoryIndex];
@@ -80,8 +81,15 @@ const StatusScreen = () => {
       }
 
       clearTimeout(timerRef.current);
+
+      // Do NOT start timer while media is still loading buffering
+      if (mediaLoading && activeStory?.mediaType !== 'text') {
+        return;
+      }
+
       timerRef.current = setTimeout(() => {
         if (currentStoryIndex < viewerStories.length - 1) {
+          setMediaLoading(true);
           setCurrentStoryIndex((prev) => prev + 1);
         } else {
           setViewerVisible(false);
@@ -90,7 +98,7 @@ const StatusScreen = () => {
     }
 
     return () => clearTimeout(timerRef.current);
-  }, [viewerVisible, currentStoryIndex, viewerStories.length, isOwnViewer]);
+  }, [viewerVisible, currentStoryIndex, viewerStories.length, isOwnViewer, mediaLoading]);
 
   // 1. Pick Image or Video from Gallery
   const pickFromGallery = async () => {
@@ -181,6 +189,7 @@ const StatusScreen = () => {
   // Open Multi-Story Viewer
   const openStoryViewer = (stories, targetUser, isOwn = false) => {
     if (!stories || stories.length === 0) return;
+    setMediaLoading(true);
     setViewerStories(stories);
     setCurrentStoryIndex(0);
     setViewerUser(targetUser);
@@ -191,6 +200,7 @@ const StatusScreen = () => {
   // Next / Previous Story Handlers
   const handleNextStory = () => {
     if (currentStoryIndex < viewerStories.length - 1) {
+      setMediaLoading(true);
       setCurrentStoryIndex((prev) => prev + 1);
     } else {
       setViewerVisible(false);
@@ -199,6 +209,7 @@ const StatusScreen = () => {
 
   const handlePrevStory = () => {
     if (currentStoryIndex > 0) {
+      setMediaLoading(true);
       setCurrentStoryIndex((prev) => prev - 1);
     }
   };
@@ -265,7 +276,7 @@ const StatusScreen = () => {
                 ]}
               >
                 {user?.profilePic ? (
-                  <Image source={{ uri: user.profilePic }} style={styles.avatar} />
+                  <Image source={{ uri: getImageUrl(user.profilePic) }} style={styles.avatar} />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
                     <Text style={styles.avatarInitial}>{user?.fullName?.charAt(0) || 'U'}</Text>
@@ -310,6 +321,7 @@ const StatusScreen = () => {
                     style={styles.miniStoryThumb}
                     activeOpacity={0.8}
                     onPress={() => {
+                      setMediaLoading(true);
                       setViewerStories(myStatuses);
                       setCurrentStoryIndex(idx);
                       setViewerUser(user);
@@ -324,7 +336,7 @@ const StatusScreen = () => {
                         </Text>
                       </View>
                     ) : (
-                      <Image source={{ uri: st.mediaUrl }} style={styles.miniImageThumb} />
+                      <Image source={{ uri: getImageUrl(st.mediaUrl) }} style={styles.miniImageThumb} />
                     )}
                     <View style={styles.miniViewersBadge}>
                       <Ionicons name="eye-outline" size={10} color="#FFFFFF" />
@@ -360,7 +372,7 @@ const StatusScreen = () => {
                   ]}
                 >
                   {item.user?.profilePic ? (
-                    <Image source={{ uri: item.user.profilePic }} style={styles.avatar} />
+                    <Image source={{ uri: getImageUrl(item.user.profilePic) }} style={styles.avatar} />
                   ) : (
                     <View style={styles.avatarPlaceholder}>
                       <Text style={styles.avatarInitial}>
@@ -631,20 +643,41 @@ const StatusScreen = () => {
               currentStory?.mediaUrl?.toLowerCase().endsWith('.mp4') ||
               currentStory?.mediaUrl?.toLowerCase().includes('/statuses/media-') ? (
               <Video
-                source={{ uri: currentStory.mediaUrl }}
+                source={{ uri: getImageUrl(currentStory.mediaUrl) }}
                 style={styles.storyFullVideo}
                 resizeMode="contain"
                 repeat
                 paused={!viewerVisible}
                 controls={false}
+                onLoadStart={() => setMediaLoading(true)}
+                onReadyForDisplay={() => setMediaLoading(false)}
+                onLoad={() => setMediaLoading(false)}
+                onError={(e) => {
+                  console.warn('Status video error:', e);
+                  setMediaLoading(false);
+                }}
               />
             ) : currentStory?.mediaUrl ? (
               <Image
-                source={{ uri: currentStory.mediaUrl }}
+                source={{ uri: getImageUrl(currentStory.mediaUrl) }}
                 style={styles.storyFullImage}
                 resizeMode="contain"
+                onLoadStart={() => setMediaLoading(true)}
+                onLoadEnd={() => setMediaLoading(false)}
+                onError={(e) => {
+                  console.warn('Status image error:', e);
+                  setMediaLoading(false);
+                }}
               />
             ) : null}
+
+            {/* Buffering / Loading Indicator */}
+            {mediaLoading && currentStory?.mediaType !== 'text' && (
+              <View style={styles.viewerLoadingOverlay}>
+                <ActivityIndicator size="large" color={theme.accent} />
+                <Text style={styles.viewerLoadingText}>Loading status...</Text>
+              </View>
+            )}
           </View>
 
           {/* Story Caption */}
@@ -1201,6 +1234,24 @@ const styles = StyleSheet.create({
   storyFullVideo: {
     width: width,
     height: '80%',
+  },
+  viewerLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 50,
+  },
+  viewerLoadingText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 10,
+    letterSpacing: 0.5,
   },
   viewerCaptionBox: {
     backgroundColor: 'rgba(0,0,0,0.6)',

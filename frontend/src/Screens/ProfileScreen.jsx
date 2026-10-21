@@ -18,12 +18,15 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logoutAction, UPDATE_USER } from '../Services/Actions/authActions';
-import { putApi, theme } from '../Services/helper';
+import { putApi, theme, getImageUrl, getThemeColors } from '../Services/helper';
+import { TOGGLE_THEME } from '../Services/Reducers/themeReducer';
 
 const ProfileScreen = ({ route, navigation }) => {
   const insets = useSafeAreaInsets();
   const dispatch = useDispatch();
   const { user: currentUser } = useSelector((state) => state.auth);
+  const themeMode = useSelector((state) => state.theme?.mode || 'dark');
+  const currentTheme = getThemeColors(themeMode);
 
   const targetUser =
     route?.params?.profileUser ||
@@ -132,7 +135,7 @@ const ProfileScreen = ({ route, navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
       {/* Header */}
@@ -148,7 +151,7 @@ const ProfileScreen = ({ route, navigation }) => {
         <View style={styles.avatarSection}>
           <View style={styles.avatarWrap}>
             {profilePic ? (
-              <Image source={{ uri: profilePic }} style={styles.avatar} />
+              <Image source={{ uri: getImageUrl(profilePic) }} style={styles.avatar} />
             ) : (
               <View style={styles.avatarPlaceholder}>
                 <Text style={styles.avatarInitial}>{fullName?.charAt(0) || 'U'}</Text>
@@ -292,6 +295,48 @@ const ProfileScreen = ({ route, navigation }) => {
             </View>
           </View>
         </View>
+
+        {/* Appearance / Theme Settings Card */}
+        {isSelf && (
+          <View style={[styles.card, { backgroundColor: currentTheme.card }]}>
+            <TouchableOpacity
+              style={styles.themeToggleRow}
+              activeOpacity={0.8}
+              onPress={() => dispatch({ type: TOGGLE_THEME })}
+            >
+              <View style={[styles.themeIconCircle, { backgroundColor: themeMode === 'dark' ? '#0F2D37' : '#E6FAF5' }]}>
+                <Ionicons
+                  name={themeMode === 'dark' ? 'moon' : 'sunny'}
+                  size={20}
+                  color={theme.accent}
+                />
+              </View>
+              <View style={styles.themeTextWrap}>
+                <Text style={[styles.themeLabel, { color: currentTheme.textPrimary }]}>
+                  App Theme Mode
+                </Text>
+                <Text style={[styles.themeSubtext, { color: currentTheme.textSecondary }]}>
+                  {themeMode === 'dark' ? 'Dark Mode (Oceanic Slate)' : 'Light Mode (Crisp Clean)'}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.themePill,
+                  { backgroundColor: themeMode === 'dark' ? '#0F2D37' : '#E2F7F2' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.themePillText,
+                    { color: themeMode === 'dark' ? theme.accent : '#0F5132' },
+                  ]}
+                >
+                  {themeMode === 'dark' ? 'Dark' : 'Light'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Save & Logout Buttons (Self only) */}
         {isSelf && (
@@ -557,6 +602,41 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 15,
     fontWeight: '700',
+  },
+  themeToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  themeIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  themeTextWrap: {
+    flex: 1,
+  },
+  themeLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  themeSubtext: {
+    fontSize: 12,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  themePill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  themePillText: {
+    fontSize: 12,
+    fontWeight: '800',
   },
   modalBackdrop: {
     flex: 1,

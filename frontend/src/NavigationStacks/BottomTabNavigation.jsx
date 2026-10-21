@@ -13,6 +13,8 @@ import { fetchRequestsAction } from '../Services/Actions/chatActions';
 import socketService from '../Services/socketService';
 import { theme } from '../Services/helper';
 
+import VideoCallModal from '../Components/VideoCallModal';
+
 const Tab = createBottomTabNavigator();
 
 const ICONS = {
@@ -86,6 +88,8 @@ const CustomTabBar = ({ state, descriptors, navigation }) => {
 
 const BottomTabNavigation = () => {
   const dispatch = useDispatch();
+  const [incomingCallData, setIncomingCallData] = React.useState(null);
+  const [incomingCallModalVisible, setIncomingCallModalVisible] = React.useState(false);
 
   useEffect(() => {
     dispatch(fetchRequestsAction());
@@ -94,27 +98,54 @@ const BottomTabNavigation = () => {
       dispatch(fetchRequestsAction());
     };
 
+    const handleGlobalIncomingCall = (callData) => {
+      setIncomingCallData(callData);
+      setIncomingCallModalVisible(true);
+    };
+
     socketService.on('friend-request-received', handleReqUpdate);
     socketService.on('friend-request-accepted', handleReqUpdate);
+    socketService.on('incoming-call', handleGlobalIncomingCall);
 
     return () => {
       socketService.off('friend-request-received', handleReqUpdate);
       socketService.off('friend-request-accepted', handleReqUpdate);
+      socketService.off('incoming-call', handleGlobalIncomingCall);
     };
   }, [dispatch]);
 
   return (
-    <Tab.Navigator
-      tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Tab.Screen name="Chats" component={ChatsScreen} />
-      <Tab.Screen name="Status" component={StatusScreen} />
-      <Tab.Screen name="Discover" component={DiscoverScreen} />
-      <Tab.Screen name="Calls" component={CallsScreen} />
-    </Tab.Navigator>
+    <>
+      <Tab.Navigator
+        tabBar={(props) => <CustomTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
+        }}
+      >
+        <Tab.Screen name="Chats" component={ChatsScreen} />
+        <Tab.Screen name="Status" component={StatusScreen} />
+        <Tab.Screen name="Discover" component={DiscoverScreen} />
+        <Tab.Screen name="Calls" component={CallsScreen} />
+      </Tab.Navigator>
+
+      {/* Global Incoming Video / Audio Call Ringing Modal */}
+      {incomingCallModalVisible && incomingCallData && (
+        <VideoCallModal
+          visible={incomingCallModalVisible}
+          callType={incomingCallData.callType || 'video'}
+          isIncoming={true}
+          targetUser={{
+            _id: incomingCallData.from,
+            fullName: incomingCallData.fromName,
+            profilePic: incomingCallData.fromPic,
+          }}
+          onClose={() => {
+            setIncomingCallModalVisible(false);
+            setIncomingCallData(null);
+          }}
+        />
+      )}
+    </>
   );
 };
 

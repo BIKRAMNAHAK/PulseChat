@@ -10,8 +10,10 @@ import {
   StatusBar,
   Alert,
 } from 'react-native';
+import { useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import socketService from '../Services/socketService';
+import { getImageUrl } from '../Services/helper';
 
 const { width, height } = Dimensions.get('window');
 
@@ -20,9 +22,14 @@ const VideoCallModal = ({
   callType = 'video', // 'video' | 'audio'
   isIncoming = false,
   targetUser,
+  recipient,
   currentUser,
   onClose,
 }) => {
+  const authUser = useSelector((state) => state.auth?.user);
+  const target = targetUser || recipient;
+  const me = currentUser || authUser;
+
   const [callStatus, setCallStatus] = useState(isIncoming ? 'ringing' : 'calling');
   const [callSeconds, setCallSeconds] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
@@ -35,14 +42,14 @@ const VideoCallModal = ({
     clearInterval(timerRef.current);
     if (callStatus === 'connected') {
       socketService.endCall({
-        to: targetUser?._id,
+        to: target?._id,
         callDuration: callSeconds,
         callType,
         callStatus: status,
       });
     }
     onClose && onClose();
-  }, [callStatus, callSeconds, callType, targetUser?._id, onClose]);
+  }, [callStatus, callSeconds, callType, target?._id, onClose]);
 
   useEffect(() => {
     if (!visible) {
@@ -52,14 +59,14 @@ const VideoCallModal = ({
       return;
     }
 
-    if (!isIncoming) {
+    if (!isIncoming && target?._id) {
       // Initiate call to target user
       socketService.callUser({
-        userToCall: targetUser?._id,
+        userToCall: target._id,
         signalData: { type: 'offer' },
-        from: currentUser?._id,
-        fromName: currentUser?.fullName,
-        fromPic: currentUser?.profilePic,
+        from: me?._id,
+        fromName: me?.fullName,
+        fromPic: me?.profilePic,
         callType,
       });
     }
@@ -96,13 +103,15 @@ const VideoCallModal = ({
       socketService.off('call-rejected', handleCallRejected);
       socketService.off('call-failed', handleCallFailed);
     };
-  }, [visible, isIncoming, targetUser, currentUser, callType, endCallLocally]);
+  }, [visible, isIncoming, target, me, callType, endCallLocally]);
 
   const acceptCall = () => {
-    socketService.answerCall({
-      to: targetUser?._id,
-      signal: { type: 'answer' },
-    });
+    if (target?._id) {
+      socketService.answerCall({
+        to: target._id,
+        signal: { type: 'answer' },
+      });
+    }
     setCallStatus('connected');
     timerRef.current = setInterval(() => {
       setCallSeconds((s) => s + 1);
@@ -110,7 +119,9 @@ const VideoCallModal = ({
   };
 
   const declineCall = () => {
-    socketService.rejectCall({ to: targetUser?._id });
+    if (target?._id) {
+      socketService.rejectCall({ to: target._id });
+    }
     endCallLocally('declined');
   };
 
@@ -130,13 +141,13 @@ const VideoCallModal = ({
         <View style={styles.callContent}>
           {/* Header Info */}
           <View style={styles.topInfo}>
-            <Text style={styles.targetName}>{targetUser?.fullName || 'Contact'}</Text>
+            <Text style={styles.targetName}>{target?.fullName || 'Contact'}</Text>
             <Text style={styles.statusLabel}>
               {callStatus === 'connected'
                 ? formatCallDuration(callSeconds)
                 : callStatus === 'ringing'
-                ? 'Incoming WhatsApp Call...'
-                : 'Calling...'}
+                ? `Incoming WhatsApp ${callType === 'audio' ? 'Audio' : 'Video'} Call...`
+                : `Calling ${callType === 'audio' ? 'Audio' : 'Video'}...`}
             </Text>
           </View>
 
@@ -147,7 +158,7 @@ const VideoCallModal = ({
                 <Image
                   source={{
                     uri:
-                      targetUser?.profilePic ||
+                      getImageUrl(target?.profilePic) ||
                       'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800',
                   }}
                   style={styles.fullVideoFeed}
@@ -161,12 +172,12 @@ const VideoCallModal = ({
             ) : (
               <View style={styles.avatarRippleWrap}>
                 <View style={styles.rippleOuter}>
-                  {targetUser?.profilePic ? (
-                    <Image source={{ uri: targetUser.profilePic }} style={styles.bigAvatar} />
+                  {target?.profilePic ? (
+                    <Image source={{ uri: getImageUrl(target.profilePic) }} style={styles.bigAvatar} />
                   ) : (
                     <View style={styles.bigAvatarPlaceholder}>
                       <Text style={styles.bigAvatarText}>
-                        {targetUser?.fullName?.charAt(0) || 'U'}
+                        {target?.fullName?.charAt(0) || 'U'}
                       </Text>
                     </View>
                   )}
@@ -178,8 +189,8 @@ const VideoCallModal = ({
           {/* Picture-in-Picture Local Preview (if connected and video call) */}
           {callType === 'video' && callStatus === 'connected' && isVideoEnabled && (
             <View style={styles.pipBox}>
-              {currentUser?.profilePic ? (
-                <Image source={{ uri: currentUser.profilePic }} style={styles.pipImg} />
+              {me?.profilePic ? (
+                <Image source={{ uri: getImageUrl(me.profilePic) }} style={styles.pipImg} />
               ) : (
                 <View style={styles.pipPlaceholder}>
                   <Text style={{ color: '#FFF', fontSize: 10 }}>You</Text>

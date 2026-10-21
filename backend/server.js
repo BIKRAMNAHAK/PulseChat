@@ -34,6 +34,10 @@ connectDB().then(() => {
   User.updateMany({}, { isOnline: false, socketId: null }).catch((err) =>
     console.error('Error resetting initial user statuses:', err)
   );
+  // Clear any leftover unverified records so they do not block fresh registrations
+  User.deleteMany({ isVerified: false }).catch((err) =>
+    console.error('Error cleaning unverified users:', err)
+  );
 });
 
 // Security & Utility Middlewares
@@ -188,57 +192,79 @@ io.on('connection', (socket) => {
   // 4. Video / Audio Call Signaling (WebRTC)
   // Call User
   socket.on('call-user', async ({ userToCall, signalData, from, fromName, fromPic, callType }) => {
-    // Security check: Must be accepted friends
-    const canChat = await checkCanChat(from, userToCall);
-    if (!canChat) {
-      socket.emit('call-error', {
-        message: 'Calling is not allowed because you are not mutual friends.',
-      });
-      return;
-    }
+    try {
+      const targetId = (userToCall?._id || userToCall)?.toString();
+      const fromId = (from?._id || from || socket.userId)?.toString();
 
-    const recipientSocket = activeUsers.get(userToCall.toString());
-    if (recipientSocket) {
-      io.to(userToCall.toString()).emit('incoming-call', {
-        signal: signalData,
-        from,
-        fromName,
-        fromPic,
-        callType: callType || 'video',
-      });
-    } else {
-      socket.emit('call-failed', {
-        message: 'User is currently offline.',
-      });
+      if (!targetId || !fromId) {
+        socket.emit('call-failed', { message: 'Invalid target or caller ID.' });
+        return;
+      }
+
+      // Security check: Must be accepted friends
+      const canChat = await checkCanChat(fromId, targetId);
+      if (!canChat) {
+        socket.emit('call-error', {
+          message: 'Calling is not allowed because you are not mutual friends.',
+        });
+        return;
+      }
+
+      const isTargetOnline = activeUsers.has(targetId) || (io.sockets.adapter.rooms.get(targetId)?.size || 0) > 0;
+      if (isTargetOnline) {
+        io.to(targetId).emit('incoming-call', {
+          signal: signalData,
+          from: fromId,
+          fromName: fromName || 'PulseChat User',
+          fromPic: fromPic || '',
+          callType: callType || 'video',
+        });
+      } else {
+        socket.emit('call-failed', {
+          message: 'User is currently offline.',
+        });
+      }
+    } catch (err) {
+      console.error('Socket call-user error:', err);
+      socket.emit('call-failed', { message: 'Could not connect call.' });
     }
   });
 
   // Answer Call
   socket.on('answer-call', ({ to, signal }) => {
-    io.to(to.toString()).emit('call-accepted', {
-      signal,
-    });
+    const targetId = (to?._id || to)?.toString();
+    if (targetId) {
+      io.to(targetId).emit('call-accepted', {
+        signal,
+      });
+    }
   });
 
   // ICE Candidate exchange
   socket.on('ice-candidate', ({ to, candidate }) => {
-    io.to(to.toString()).emit('ice-candidate', {
-      candidate,
-    });
+    const targetId = (to?._id || to)?.toString();
+    if (targetId) {
+      io.to(targetId).emit('ice-candidate', {
+        candidate,
+      });
+    }
   });
 
   // End or Reject Call
   socket.on('end-call', async ({ to, callDuration, callType, callStatus }) => {
-    io.to(to.toString()).emit('call-ended', {
-      callDuration: callDuration || 0,
-      callStatus: callStatus || 'completed',
-    });
+    const targetId = (to?._id || to)?.toString();
+    if (targetId) {
+      io.to(targetId).emit('call-ended', {
+        callDuration: callDuration || 0,
+        callStatus: callStatus || 'completed',
+      });
+    }
 
     // Optionally create a call log message
-    if (socket.userId) {
+    if (socket.userId && targetId) {
       await Message.create({
         sender: socket.userId,
-        receiver: to,
+        receiver: targetId,
         messageType: callType === 'audio' ? 'audio_call_log' : 'video_call_log',
         callDuration: callDuration || 0,
         callStatus: callStatus || 'completed',
@@ -248,9 +274,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('reject-call', ({ to }) => {
-    io.to(to.toString()).emit('call-rejected', {
-      message: 'Call declined by user.',
-    });
+    const targetId = (to?._id || to)?.toString();
+    if (targetId) {
+      io.to(targetId).emit('call-rejected', {
+        message: 'Call declined by user.',
+      });
+    }
   });
 
 // 5. Group Chat Rooms

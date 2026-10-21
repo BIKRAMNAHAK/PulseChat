@@ -17,6 +17,14 @@ export const SOCKET_URL = SERVER_URL;
 
 export const getImageUrl = (url) => {
   if (!url) return '';
+  if (
+    url.startsWith('http://localhost') ||
+    url.startsWith('http://10.0.2.2') ||
+    url.startsWith('http://127.0.0.1')
+  ) {
+    const path = url.replace(/^https?:\/\/[^\/]+/, '');
+    return `${SERVER_URL}${path}`;
+  }
   if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('file://')) {
     return url;
   }
@@ -70,52 +78,105 @@ export const deleteApi = async (url = '', data = {}) => {
 };
 
 /* =====================================================
-   3. MODERN WHATSAPP-STYLE THEME PALETTE
-   (Distinct modern Oceanic Slate & Electric Cyan)
+   3. MODERN WHATSAPP-STYLE THEME PALETTES
+   (Dark Mode & Light Mode)
    ===================================================== */
-export const theme = {
-  // Brand / Header Colors
-  primary: '#0B2228',         // Deep Obsidian Teal (WhatsApp top bar alternate)
-  primaryDark: '#07161A',     // Status bar color
-  primaryLight: '#143842',    // Header light shade
-  accent: '#00C49F',          // Vibrant Emerald / Electric Mint
-  accentSecondary: '#00A8E8', // Cyan highlights
+export const darkTheme = {
+  mode: 'dark',
+  primary: '#0B2228',         // Deep Obsidian Teal
+  primaryDark: '#07161A',     // Status bar
+  primaryLight: '#143842',
+  accent: '#00C49F',          // Vibrant Emerald Mint
+  accentSecondary: '#00A8E8',
+
+  background: '#0B141B',      // Dark background
+  card: '#111B21',            // Dark card
+  surface: '#182229',
+  border: '#222E35',
 
   // Chat Bubbles
-  senderBubble: '#E2F7F2',    // WhatsApp-like subtle soft mint on right
-  outgoingBubble: '#E2F7F2',
-  senderBubbleDark: '#0D3833',
-  receiverBubble: '#FFFFFF',  // Clean white on left
-  incomingBubble: '#FFFFFF',
-  receiverBubbleDark: '#1E293B',
-  chatBackground: '#EFEAE2',  // WhatsApp-like background wallpaper tone
-  chatBackgroundAlt: '#F3F5F7',
-
-  // Read Receipts & Indicators
-  tickSent: '#8696A0',        // Single grey tick (Sent)
-  tickDelivered: '#8696A0',   // Double grey tick (Delivered)
-  tickSeen: '#10B981',        // Double Emerald Green tick (Seen/Read!)
-  onlineBadge: '#10B981',     // Green online dot
+  senderBubble: '#005C4B',
+  outgoingBubble: '#005C4B',
+  receiverBubble: '#202C33',
+  incomingBubble: '#202C33',
+  chatBackground: '#0B141B',
+  chatBackgroundAlt: '#111B21',
 
   // Text
-  textPrimary: '#111B21',     // High contrast dark text
-  textSecondary: '#667781',   // Subtitle / timestamp text
+  textPrimary: '#E9EDEF',
+  textSecondary: '#8696A0',
   textLight: '#FFFFFF',
-  textMuted: '#8696A0',
+  textMuted: '#667781',
 
-  // UI Elements
-  inputBackground: '#FFFFFF',
-  border: '#E2E8F0',
-  card: '#FFFFFF',
+  // Inputs
+  inputBackground: '#202C33',
+  inputBorder: '#2A3942',
+  inputText: '#E9EDEF',
+
+  // Read Receipts & Indicators
+  tickSent: '#8696A0',
+  tickDelivered: '#8696A0',
+  tickSeen: '#53BDEB',
+  onlineBadge: '#00C49F',
   danger: '#EF4444',
   warning: '#F59E0B',
   success: '#10B981',
   unfollowWarning: '#DC2626',
 
-  // Status / Story Rings
-  statusUnviewed: '#00C49F',  // Green ring around new status
-  statusViewed: '#8696A0',    // Grey ring around viewed status
+  statusUnviewed: '#00C49F',
+  statusViewed: '#8696A0',
 };
+
+export const lightTheme = {
+  mode: 'light',
+  primary: '#0B2228',         // Deep Obsidian Teal Header
+  primaryDark: '#07161A',
+  primaryLight: '#143842',
+  accent: '#00C49F',
+  accentSecondary: '#00A8E8',
+
+  background: '#F8FAFC',      // Crisp light slate
+  card: '#FFFFFF',            // Crisp clean white card
+  surface: '#FFFFFF',
+  border: '#E2E8F0',
+
+  // Chat Bubbles
+  senderBubble: '#E2F7F2',
+  outgoingBubble: '#E2F7F2',
+  receiverBubble: '#FFFFFF',
+  incomingBubble: '#FFFFFF',
+  chatBackground: '#EFEAE2',
+  chatBackgroundAlt: '#F3F5F7',
+
+  // Text
+  textPrimary: '#111B21',
+  textSecondary: '#667781',
+  textLight: '#FFFFFF',
+  textMuted: '#8696A0',
+
+  // Inputs
+  inputBackground: '#F1F5F9',
+  inputBorder: '#E2E8F0',
+  inputText: '#111B21',
+
+  // Read Receipts & Indicators
+  tickSent: '#8696A0',
+  tickDelivered: '#8696A0',
+  tickSeen: '#10B981',
+  onlineBadge: '#10B981',
+  danger: '#EF4444',
+  warning: '#F59E0B',
+  success: '#10B981',
+  unfollowWarning: '#DC2626',
+
+  statusUnviewed: '#00C49F',
+  statusViewed: '#8696A0',
+};
+
+// Default export alias for backward compatibility
+export const theme = darkTheme;
+
+export const getThemeColors = (mode) => (mode === 'light' ? lightTheme : darkTheme);
 
 export const textColor = {
   primary: theme.textPrimary,
