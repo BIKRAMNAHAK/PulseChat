@@ -1,4 +1,5 @@
 const User = require('../Modal/RegisterModal');
+const fs = require('fs');
 
 // 1. Get Profile by ID
 exports.getProfile = async (req, res) => {
@@ -43,7 +44,15 @@ exports.updateProfile = async (req, res) => {
     if (about) user.about = about.trim();
 
     if (req.file) {
-      user.profilePic = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
+      // Store image directly in MongoDB as Base64 Data URL so it is NEVER lost on Render restarts!
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        user.profilePic = `data:${req.file.mimetype || 'image/jpeg'};base64,${fileBuffer.toString('base64')}`;
+        fs.unlinkSync(req.file.path);
+      } catch (err) {
+        console.warn('Error saving profilePic as base64 in MongoDB:', err);
+        user.profilePic = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
+      }
     } else if (req.body.profilePic) {
       user.profilePic = req.body.profilePic;
     }

@@ -1,5 +1,6 @@
 const Status = require('../Modal/StatusModal');
 const FriendRequest = require('../Modal/FriendRequest');
+const fs = require('fs');
 
 // 1. Create / Upload Status (Short / Story)
 exports.createStatus = async (req, res) => {
@@ -11,8 +12,27 @@ exports.createStatus = async (req, res) => {
     let finalMediaType = mediaType || 'image';
 
     if (req.file) {
-      mediaUrl = `${req.protocol}://${req.get('host')}/uploads/statuses/${req.file.filename}`;
-      finalMediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+      const isVideo =
+        req.file.mimetype.startsWith('video/') ||
+        ['.mp4', '.mov', '.webm', '.m4v'].some((ext) =>
+          req.file.originalname?.toLowerCase().endsWith(ext)
+        );
+
+      finalMediaType = isVideo ? 'video' : 'image';
+
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        // Save images and short videos directly as Base64 in MongoDB so they never get lost on Render
+        if (!isVideo || req.file.size <= 14 * 1024 * 1024) {
+          mediaUrl = `data:${req.file.mimetype || (isVideo ? 'video/mp4' : 'image/jpeg')};base64,${fileBuffer.toString('base64')}`;
+          fs.unlinkSync(req.file.path);
+        } else {
+          mediaUrl = `${req.protocol}://${req.get('host')}/uploads/statuses/${req.file.filename}`;
+        }
+      } catch (err) {
+        console.warn('Error reading status file buffer:', err);
+        mediaUrl = `${req.protocol}://${req.get('host')}/uploads/statuses/${req.file.filename}`;
+      }
     } else if (req.body.mediaUrl) {
       mediaUrl = req.body.mediaUrl;
     } else if (finalMediaType === 'text' && caption) {

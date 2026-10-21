@@ -17,6 +17,9 @@ export const SOCKET_URL = SERVER_URL;
 
 export const getImageUrl = (url) => {
   if (!url) return '';
+  if (url.startsWith('data:')) {
+    return url;
+  }
   if (
     url.startsWith('http://localhost') ||
     url.startsWith('http://10.0.2.2') ||

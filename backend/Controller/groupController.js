@@ -1,6 +1,7 @@
 const Group = require('../Modal/GroupModal');
 const Message = require('../Modal/Message');
 const User = require('../Modal/RegisterModal');
+const fs = require('fs');
 
 // 1. Create New Group
 exports.createGroup = async (req, res) => {
@@ -23,7 +24,13 @@ exports.createGroup = async (req, res) => {
 
     let groupPic = '';
     if (req.file) {
-      groupPic = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        groupPic = `data:${req.file.mimetype || 'image/jpeg'};base64,${fileBuffer.toString('base64')}`;
+        fs.unlinkSync(req.file.path);
+      } catch (err) {
+        groupPic = `${req.protocol}://${req.get('host')}/uploads/profiles/${req.file.filename}`;
+      }
     } else if (req.body.groupPic) {
       groupPic = req.body.groupPic;
     }

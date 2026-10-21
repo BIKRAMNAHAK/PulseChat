@@ -247,6 +247,25 @@ const StatusScreen = () => {
 
   const currentStory = viewerStories[currentStoryIndex];
 
+  const isVideoStory = (story) => {
+    if (!story || !story.mediaUrl) return false;
+    if (story.mediaType === 'video') return true;
+    if (typeof story.mediaUrl === 'string') {
+      const urlLower = story.mediaUrl.toLowerCase();
+      if (urlLower.startsWith('data:video/')) return true;
+      if (['.mp4', '.mov', '.webm', '.m4v', '.3gp', '.mkv'].some((ext) => urlLower.endsWith(ext) || urlLower.includes(ext + '?'))) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  useEffect(() => {
+    if (currentStory?.mediaType === 'text') {
+      setMediaLoading(false);
+    }
+  }, [currentStory]);
+
   return (
     <View style={[styles.container, { backgroundColor: currentTheme.background }]}>
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
@@ -336,6 +355,10 @@ const StatusScreen = () => {
                         <Text style={styles.miniTextThumbText} numberOfLines={2}>
                           {st.caption}
                         </Text>
+                      </View>
+                    ) : isVideoStory(st) ? (
+                      <View style={[styles.miniTextThumb, { backgroundColor: '#1F2937', justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="play-circle" size={26} color="#FFFFFF" />
                       </View>
                     ) : (
                       <Image source={{ uri: getImageUrl(st.mediaUrl) }} style={styles.miniImageThumb} />
@@ -641,9 +664,7 @@ const StatusScreen = () => {
               <View style={styles.fullscreenTextWrap}>
                 <Text style={styles.fullscreenText}>{currentStory.caption}</Text>
               </View>
-            ) : currentStory?.mediaType === 'video' ||
-              currentStory?.mediaUrl?.toLowerCase().endsWith('.mp4') ||
-              currentStory?.mediaUrl?.toLowerCase().includes('/statuses/media-') ? (
+            ) : isVideoStory(currentStory) ? (
               <Video
                 source={{ uri: getImageUrl(currentStory.mediaUrl) }}
                 style={styles.storyFullVideo}

@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const fs = require('fs');
 const User = require('../Modal/RegisterModal');
 const PendingRegistration = require('../Modal/PendingRegistration');
 const { sendOTPEmail } = require('../db_config/node_mailer');
@@ -132,10 +133,17 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Handle Profile Pic if uploaded via multer
+    // Handle Profile Pic if uploaded via multer (Saved directly to MongoDB as Base64)
     let profilePicPath = '';
     if (req.file) {
-      profilePicPath = `/uploads/profiles/${req.file.filename}`;
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        profilePicPath = `data:${req.file.mimetype || 'image/jpeg'};base64,${fileBuffer.toString('base64')}`;
+        fs.unlinkSync(req.file.path);
+      } catch (err) {
+        console.warn('Error saving registration profile pic as base64:', err);
+        profilePicPath = `/uploads/profiles/${req.file.filename}`;
+      }
     } else if (req.body.profilePic) {
       profilePicPath = req.body.profilePic;
     }

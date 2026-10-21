@@ -1,6 +1,7 @@
 const Message = require('../Modal/Message');
 const User = require('../Modal/RegisterModal');
 const { checkCanChat } = require('./connenctonReq');
+const fs = require('fs');
 
 // 1. Get Conversation Messages between Current User and Recipient
 exports.getMessages = async (req, res) => {
@@ -63,10 +64,21 @@ exports.getMessages = async (req, res) => {
       }
     }
 
+    const activeUsers = req.app.get('activeUsers');
+    const recipientUser = await User.findById(recipientId).select('fullName profilePic isOnline lastSeen');
+    let recipientData = null;
+    if (recipientUser) {
+      recipientData = {
+        ...recipientUser.toObject(),
+        isOnline: activeUsers ? activeUsers.has(recipientId.toString()) : !!recipientUser.isOnline,
+      };
+    }
+
     return res.status(200).json({
       success: true,
       canChat: true,
       messages,
+      recipient: recipientData,
     });
   } catch (error) {
     console.error('Error in getMessages:', error);
@@ -102,7 +114,13 @@ exports.sendMessage = async (req, res) => {
 
     let mediaUrl = '';
     if (req.file) {
-      mediaUrl = `${req.protocol}://${req.get('host')}/uploads/chats/${req.file.filename}`;
+      try {
+        const fileBuffer = fs.readFileSync(req.file.path);
+        mediaUrl = `data:${req.file.mimetype || 'image/jpeg'};base64,${fileBuffer.toString('base64')}`;
+        fs.unlinkSync(req.file.path);
+      } catch (err) {
+        mediaUrl = `${req.protocol}://${req.get('host')}/uploads/chats/${req.file.filename}`;
+      }
     } else if (req.body.mediaUrl) {
       mediaUrl = req.body.mediaUrl;
     }

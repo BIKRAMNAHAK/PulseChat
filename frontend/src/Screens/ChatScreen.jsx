@@ -52,8 +52,51 @@ const ChatScreen = ({ route, navigation }) => {
   const [canChat, setCanChat] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [isRecipientOnline, setIsRecipientOnline] = useState(recipient?.isOnline || false);
+  const [recipientLastSeen, setRecipientLastSeen] = useState(recipient?.lastSeen || null);
   const [sending, setSending] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // Format WhatsApp-style Last Seen string
+  const formatLastSeen = (dateStr) => {
+    if (!dateStr) return 'Offline';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return 'Offline';
+
+      const now = new Date();
+      const isToday =
+        date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear();
+
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const isYesterday =
+        date.getDate() === yesterday.getDate() &&
+        date.getMonth() === yesterday.getMonth() &&
+        date.getFullYear() === yesterday.getFullYear();
+
+      let hours = date.getHours();
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12;
+      hours = hours ? hours : 12;
+      const timeStr = `${hours}:${minutes} ${ampm}`;
+
+      if (isToday) {
+        return `last seen today at ${timeStr}`;
+      } else if (isYesterday) {
+        return `last seen yesterday at ${timeStr}`;
+      } else {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthStr = months[date.getMonth()];
+        const day = date.getDate();
+        return `last seen ${day} ${monthStr} at ${timeStr}`;
+      }
+    } catch (e) {
+      return 'Offline';
+    }
+  };
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = useState('');
   const [groupInfoModal, setGroupInfoModal] = useState(false);
@@ -196,6 +239,14 @@ const ChatScreen = ({ route, navigation }) => {
           if (res) {
             setCanChat(res.canChat);
             setMessages(res.messages || []);
+            if (res.recipient) {
+              if (typeof res.recipient.isOnline === 'boolean') {
+                setIsRecipientOnline(res.recipient.isOnline);
+              }
+              if (res.recipient.lastSeen) {
+                setRecipientLastSeen(res.recipient.lastSeen);
+              }
+            }
           }
         })
         .catch((err) => {
@@ -236,8 +287,11 @@ const ChatScreen = ({ route, navigation }) => {
       };
 
       const handleStatusChanged = (data) => {
-        if (data.userId === recipient._id) {
+        if (data.userId === recipient._id || data.userId === recipient._id?.toString()) {
           setIsRecipientOnline(data.isOnline);
+          if (data.lastSeen) {
+            setRecipientLastSeen(data.lastSeen);
+          }
         }
       };
 
@@ -718,7 +772,11 @@ const ChatScreen = ({ route, navigation }) => {
                 ]}
                 numberOfLines={1}
               >
-                {isTyping ? 'typing...' : isRecipientOnline ? 'Online' : 'Offline'}
+                {isTyping
+                  ? 'typing...'
+                  : isRecipientOnline
+                  ? 'Online'
+                  : formatLastSeen(recipientLastSeen)}
               </Text>
             )}
           </View>
