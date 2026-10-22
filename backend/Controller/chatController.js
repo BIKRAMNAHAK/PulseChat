@@ -1,6 +1,7 @@
 const Message = require('../Modal/Message');
 const User = require('../Modal/RegisterModal');
 const { checkCanChat } = require('./connenctonReq');
+const { sendMessagePushNotification } = require('../utils/firebaseNotification');
 const fs = require('fs');
 
 // 1. Get Conversation Messages between Current User and Recipient
@@ -155,6 +156,17 @@ exports.sendMessage = async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       io.to(receiverId.toString()).emit('receive-message', populatedMessage);
+    }
+
+    // Trigger FCM Push Notification
+    if (receiver.fcmToken) {
+      const senderName = req.user?.fullName || populatedMessage.sender?.fullName || 'PulseChat';
+      sendMessagePushNotification({
+        fcmToken: receiver.fcmToken,
+        senderName,
+        content: content || (mediaUrl ? '📷 Photo' : 'New Message'),
+        senderId,
+      }).catch((e) => console.warn('Background FCM push error:', e.message));
     }
 
     return res.status(201).json({

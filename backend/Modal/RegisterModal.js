@@ -69,6 +69,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    currentSessionId: {
+      type: String,
+      default: '',
+    },
+    fcmToken: {
+      type: String,
+      default: '',
+    },
   },
   {
     timestamps: true,

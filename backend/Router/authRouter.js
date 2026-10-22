@@ -36,5 +36,6 @@ router.post('/verify-otp', authController.verifyOtp);
 router.post('/resend-otp', otpLimiter, authController.resendOtp);
 router.post('/login', loginLimiter, authController.login);
 router.get('/me', authMiddleware, authController.getMe);
+router.post('/fcm-token', authMiddleware, authController.updateFCMToken);
 
 module.exports = router;

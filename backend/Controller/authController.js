@@ -11,9 +11,9 @@ const generateOTP = () => {
 };
 
 // Helper to generate JWT Token
-const generateToken = (userId) => {
+const generateToken = (userId, sessionId = '') => {
   return jwt.sign(
-    { userId },
+    { userId, sessionId },
     process.env.JWT_SECRET || 'super_secure_jwt_secret_key_mychat_2026_@#!',
     { expiresIn: '30d' }
   );
@@ -249,6 +249,7 @@ exports.verifyOtp = async (req, res) => {
       }
 
       // Create confirmed user in User collection
+      const sessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
       const newUser = await User.create({
         fullName: pending.fullName,
         mobileNumber: pending.mobileNumber,
@@ -258,12 +259,13 @@ exports.verifyOtp = async (req, res) => {
         address: pending.address,
         isVerified: true,
         isOnline: true,
+        currentSessionId: sessionId,
       });
 
       // Remove from PendingRegistration
       await PendingRegistration.deleteOne({ _id: pending._id });
 
-      const token = generateToken(newUser._id);
+      const token = generateToken(newUser._id, sessionId);
 
       return res.status(200).json({
         success: true,
@@ -445,9 +447,20 @@ exports.login = async (req, res) => {
       });
     }
 
-    const token = generateToken(user._id);
+    // Single Device Login: Invalidate any previous session and force-logout existing socket
+    const sessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    const io = req.app.get('io');
+    if (io) {
+      io.to(user._id.toString()).emit('force-logout', {
+        message: 'Aapka account kisi doosre device par login ho gaya hai. Aap yahan se logout ho gaye hain.',
+      });
+    }
+
+    user.currentSessionId = sessionId;
     user.isOnline = true;
     await user.save();
+
+    const token = generateToken(user._id, sessionId);
 
     return res.status(200).json({
       success: true,
@@ -477,6 +490,32 @@ exports.getMe = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Error fetching profile.',
+    });
+  }
+};
+
+// 7. Update Device FCM Push Token
+exports.updateFCMToken = async (req, res) => {
+  try {
+    const { fcmToken } = req.body;
+    if (!fcmToken) {
+      return res.status(400).json({
+        success: false,
+        message: 'fcmToken is required.',
+      });
+    }
+
+    await User.findByIdAndUpdate(req.user._id, { fcmToken });
+
+    return res.status(200).json({
+      success: true,
+      message: 'FCM Token registered successfully.',
+    });
+  } catch (error) {
+    console.error('Error updating FCM Token:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error updating FCM Token.',
     });
   }
 };

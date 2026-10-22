@@ -18,6 +18,7 @@ const connectDB = require('./db_config/mongodb_conn');
 const User = require('./Modal/RegisterModal');
 const Message = require('./Modal/Message');
 const { checkCanChat } = require('./Controller/connenctonReq');
+const { sendCallPushNotification } = require('./utils/firebaseNotification');
 
 // Routes
 const authRouter = require('./Router/authRouter');
@@ -224,6 +225,22 @@ io.on('connection', (socket) => {
           message: 'User is currently offline.',
         });
       }
+
+      // Also trigger high-priority FCM call notification
+      User.findById(targetId)
+        .select('fcmToken')
+        .then((targetUserDoc) => {
+          if (targetUserDoc?.fcmToken) {
+            sendCallPushNotification({
+              fcmToken: targetUserDoc.fcmToken,
+              callerName: fromName || 'PulseChat User',
+              callerPic: fromPic || '',
+              callType: callType || 'video',
+              callerId: fromId,
+            }).catch((err) => console.warn('Background call FCM error:', err.message));
+          }
+        })
+        .catch(() => {});
     } catch (err) {
       console.error('Socket call-user error:', err);
       socket.emit('call-failed', { message: 'Could not connect call.' });

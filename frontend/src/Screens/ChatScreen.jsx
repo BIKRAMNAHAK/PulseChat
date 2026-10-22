@@ -112,6 +112,7 @@ const ChatScreen = ({ route, navigation }) => {
   const [callVisible, setCallVisible] = useState(!!initiateCall && !isGroup);
   const [callType, setCallType] = useState(initiateCall || 'video');
   const [isIncomingCall, setIsIncomingCall] = useState(false);
+  const [incomingSignal, setIncomingSignal] = useState(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const flatListRef = useRef(null);
@@ -306,8 +307,9 @@ const ChatScreen = ({ route, navigation }) => {
       };
 
       const handleIncomingCall = (callData) => {
-        if (callData.from === recipient._id) {
+        if (callData.from === recipient._id || callData.from === recipient._id?.toString()) {
           setCallType(callData.callType || 'video');
+          setIncomingSignal(callData.signal || null);
           setIsIncomingCall(true);
           setCallVisible(true);
         }
@@ -713,9 +715,9 @@ const ChatScreen = ({ route, navigation }) => {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 25}
+      style={[styles.container, { backgroundColor: currentTheme.background }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
       <StatusBar backgroundColor={theme.primaryDark} barStyle="light-content" />
 
@@ -1248,7 +1250,11 @@ const ChatScreen = ({ route, navigation }) => {
           recipient={recipient}
           currentUser={user}
           isIncoming={isIncomingCall}
-          onClose={() => setCallVisible(false)}
+          incomingSignal={incomingSignal}
+          onClose={() => {
+            setCallVisible(false);
+            setIncomingSignal(null);
+          }}
         />
       )}
     </KeyboardAvoidingView>

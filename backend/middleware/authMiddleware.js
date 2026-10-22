@@ -31,6 +31,15 @@ const authMiddleware = async (req, res, next) => {
       });
     }
 
+    // Enforce single-device login: reject if token sessionId doesn't match current active session
+    if (decoded.sessionId && user.currentSessionId && decoded.sessionId !== user.currentSessionId) {
+      return res.status(401).json({
+        success: false,
+        sessionExpired: true,
+        message: 'Aapka account kisi doosre device par login ho chuka hai. Kripya dobara login karein.',
+      });
+    }
+
     req.user = user;
     next();
   } catch (error) {

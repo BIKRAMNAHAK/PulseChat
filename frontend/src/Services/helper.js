@@ -58,6 +58,24 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// Response interceptor for session expiration (single device login enforcement)
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error.response?.status === 401 && error.response?.data?.sessionExpired) {
+      try {
+        await AsyncStorage.removeItem('user_token');
+        await AsyncStorage.removeItem('user_data');
+        const { default: store } = await import('./store');
+        store.dispatch({ type: 'LOGOUT' });
+      } catch (e) {
+        console.warn('Session auto-logout error:', e);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const getApi = async (url = '', params = {}) => {
   const res = await api.get(url, { params });
   return res.data;
