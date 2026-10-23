@@ -11,25 +11,31 @@ import {
   Alert,
   Platform,
   PermissionsAndroid,
+  NativeModules,
 } from 'react-native';
 import { useSelector } from 'react-redux';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import socketService from '../Services/socketService';
 import { getImageUrl } from '../Services/helper';
 
-// WebRTC Imports
-import {
-  RTCPeerConnection,
-  RTCIceCandidate,
-  RTCSessionDescription,
-  RTCView,
-  mediaDevices,
-} from 'react-native-webrtc';
-import InCallManager from 'react-native-incall-manager';
+// Safely require WebRTC to prevent app crash if native module is not present in old APK build
+let webrtcLib = null;
+try {
+  webrtcLib = require('react-native-webrtc');
+} catch (e) {
+  console.warn('⚠️ react-native-webrtc require error:', e);
+}
+
+const RTCPeerConnection = webrtcLib?.RTCPeerConnection;
+const RTCIceCandidate = webrtcLib?.RTCIceCandidate;
+const RTCSessionDescription = webrtcLib?.RTCSessionDescription;
+const RTCView = webrtcLib?.RTCView;
+const mediaDevices = webrtcLib?.mediaDevices;
+
+const hasNativeWebRTC = !!(NativeModules.WebRTCModule && RTCPeerConnection && mediaDevices);
 
 const { width, height } = Dimensions.get('window');
 
-// Standard STUN servers for peer-to-peer NAT traversal
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -52,14 +58,14 @@ const VideoCallModal = ({
   const target = targetUser || recipient;
   const me = currentUser || authUser;
 
-  const [callStatus, setCallStatus] = useState(isIncoming ? 'ringing' : 'calling'); // calling | ringing | connected | ended
+  const [callStatus, setCallStatus] = useState(isIncoming ? 'ringing' : 'calling');
   const [callSeconds, setCallSeconds] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(callType === 'video');
   const [isVideoEnabled, setIsVideoEnabled] = useState(callType === 'video');
   const [isFrontCamera, setIsFrontCamera] = useState(true);
 
-  // WebRTC Stream states
+  // WebRTC Streams
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
 
@@ -68,35 +74,34 @@ const VideoCallModal = ({
   const timerRef = useRef(null);
   const incomingOfferRef = useRef(incomingSignal);
 
-  // Keep ref updated
   useEffect(() => {
     if (incomingSignal) {
       incomingOfferRef.current = incomingSignal;
     }
   }, [incomingSignal]);
 
-  // Request Android Camera & Audio Permissions
+  // Request Permissions safely
   const requestCallPermissions = async () => {
     if (Platform.OS === 'android') {
       try {
-        const perms = [
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          PermissionsAndroid.PERMISSIONS.CAMERA,
-        ];
+        const perms = [PermissionsAndroid.PERMISSIONS.RECORD_AUDIO];
+        if (callType === 'video') {
+          perms.push(PermissionsAndroid.PERMISSIONS.CAMERA);
+        }
         const granted = await PermissionsAndroid.requestMultiple(perms);
         return (
           granted[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] ===
           PermissionsAndroid.RESULTS.GRANTED
         );
       } catch (err) {
-        console.warn('Call permission request error:', err);
+        console.warn('Permission error:', err);
         return false;
       }
     }
     return true;
   };
 
-  // 1. Cleanup all streams, InCallManager and PeerConnection
+  // 1. Safe cleanup
   const cleanupCall = useCallback(() => {
     clearInterval(timerRef.current);
 
@@ -114,10 +119,6 @@ const VideoCallModal = ({
       } catch (e) {}
       pcRef.current = null;
     }
-
-    try {
-      InCallManager.stop();
-    } catch (e) {}
 
     setLocalStream(null);
     setRemoteStream(null);
@@ -139,13 +140,17 @@ const VideoCallModal = ({
     [cleanupCall, target?._id, callSeconds, callType, onClose]
   );
 
-  // 2. Initialize WebRTC Peer Connection
+  // 2. Initialize Peer Connection (only if native module exists)
   const initPeerConnection = useCallback(() => {
+    if (!hasNativeWebRTC) {
+      console.log('ℹ️ Running in fallback signaling mode (WebRTC native module not available in this APK build).');
+      return null;
+    }
+
     try {
       const pc = new RTCPeerConnection(ICE_SERVERS);
       pcRef.current = pc;
 
-      // When ICE candidate is generated, send to peer
       pc.onicecandidate = (event) => {
         if (event.candidate && target?._id) {
           socketService.sendIceCandidate({
@@ -155,7 +160,6 @@ const VideoCallModal = ({
         }
       };
 
-      // When remote track/stream is received
       pc.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
           setRemoteStream(event.streams[0]);
@@ -163,7 +167,6 @@ const VideoCallModal = ({
       };
 
       pc.onconnectionstatechange = () => {
-        console.log('📡 WebRTC Connection State:', pc.connectionState);
         if (pc.connectionState === 'connected') {
           setCallStatus('connected');
         } else if (
@@ -177,16 +180,18 @@ const VideoCallModal = ({
 
       return pc;
     } catch (err) {
-      console.error('Error initializing RTCPeerConnection:', err);
+      console.warn('RTCPeerConnection init error:', err);
       return null;
     }
   }, [target?._id, endCallLocally]);
 
   // 3. Capture Local Media Stream
   const getLocalMediaStream = useCallback(async () => {
+    if (!hasNativeWebRTC || !mediaDevices?.getUserMedia) return null;
+
     const hasPerm = await requestCallPermissions();
     if (!hasPerm) {
-      Alert.alert('Permission Denied', 'Microphone and Camera permissions are required for calling.');
+      Alert.alert('Permission Required', 'Microphone permission is required to make calls.');
       endCallLocally('failed');
       return null;
     }
@@ -199,9 +204,9 @@ const VideoCallModal = ({
           ? false
           : {
               facingMode: 'user',
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-              frameRate: { ideal: 30 },
+              width: 640,
+              height: 480,
+              frameRate: 30,
             },
       };
 
@@ -210,14 +215,14 @@ const VideoCallModal = ({
       localStreamRef.current = stream;
       return stream;
     } catch (err) {
-      console.warn('getUserMedia error, falling back to audio only:', err);
+      console.warn('getUserMedia error, trying audio only:', err);
       try {
         const audioStream = await mediaDevices.getUserMedia({ audio: true, video: false });
         setLocalStream(audioStream);
         localStreamRef.current = audioStream;
         return audioStream;
-      } catch (audioErr) {
-        console.error('Audio capture failed:', audioErr);
+      } catch (e) {
+        console.warn('Audio capture failed:', e);
         return null;
       }
     }
@@ -230,52 +235,53 @@ const VideoCallModal = ({
       return;
     }
 
-    let isMounted = true;
-
-    // Start InCallManager audio routing
-    try {
-      InCallManager.start({ media: callType });
-      InCallManager.setSpeakerphoneOn(callType === 'video');
-      setIsSpeakerOn(callType === 'video');
-      if (isIncoming) {
-        InCallManager.startRingtone('_DEFAULT_');
-      } else {
-        InCallManager.startRingback('_DEFAULT_');
-      }
-    } catch (e) {}
+    // Inform user if APK was not re-built after adding WebRTC
+    if (!hasNativeWebRTC) {
+      Alert.alert(
+        'Fresh APK Required for WebRTC',
+        'Calling requires native WebRTC libraries. Please generate and install the new APK (`./gradlew assembleRelease`) for full audio/video streaming.',
+        [{ text: 'OK' }]
+      );
+    }
 
     const setupCall = async () => {
       const pc = initPeerConnection();
-      if (!pc) return;
+      let stream = null;
 
-      const stream = await getLocalMediaStream();
-      if (stream && pc) {
-        stream.getTracks().forEach((track) => {
-          try {
-            pc.addTrack(track, stream);
-          } catch (e) {}
-        });
+      if (hasNativeWebRTC) {
+        stream = await getLocalMediaStream();
+        if (stream && pc) {
+          stream.getTracks().forEach((track) => {
+            try {
+              pc.addTrack(track, stream);
+            } catch (e) {}
+          });
+        }
       }
 
-      // If OUTGOING CALL: create offer and send
+      // If OUTGOING CALL: create offer and send via socket
       if (!isIncoming && target?._id) {
         try {
-          const offer = await pc.createOffer({
-            offerToReceiveAudio: true,
-            offerToReceiveVideo: callType === 'video',
-          });
-          await pc.setLocalDescription(offer);
+          let signalData = { type: 'offer' };
+          if (pc) {
+            const offer = await pc.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: callType === 'video',
+            });
+            await pc.setLocalDescription(offer);
+            signalData = offer;
+          }
 
           socketService.callUser({
             userToCall: target._id,
-            signalData: offer,
+            signalData,
             from: me?._id,
             fromName: me?.fullName,
             fromPic: me?.profilePic,
             callType,
           });
         } catch (offerErr) {
-          console.error('Error creating offer:', offerErr);
+          console.warn('Error creating offer:', offerErr);
         }
       }
     };
@@ -284,34 +290,28 @@ const VideoCallModal = ({
 
     // Socket Event Listeners
     const handleCallAccepted = async (data) => {
-      try {
-        InCallManager.stopRingback();
-      } catch (e) {}
       setCallStatus('connected');
 
-      // Start call timer
       clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
         setCallSeconds((s) => s + 1);
       }, 1000);
 
-      if (data?.signal && pcRef.current) {
+      if (data?.signal && pcRef.current && RTCSessionDescription) {
         try {
           const desc = new RTCSessionDescription(data.signal);
           await pcRef.current.setRemoteDescription(desc);
         } catch (e) {
-          console.warn('Error setting remote description on call-accepted:', e);
+          console.warn('Error setting remote description:', e);
         }
       }
     };
 
     const handleIceCandidate = async (data) => {
-      if (data?.candidate && pcRef.current) {
+      if (data?.candidate && pcRef.current && RTCIceCandidate) {
         try {
           await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
-        } catch (e) {
-          console.warn('Error adding ice candidate:', e);
-        }
+        } catch (e) {}
       }
     };
 
@@ -320,7 +320,7 @@ const VideoCallModal = ({
     };
 
     const handleCallRejected = () => {
-      Alert.alert('Call Declined', 'The user declined your call.');
+      Alert.alert('Call Declined', 'User declined your call.');
       endCallLocally('declined');
     };
 
@@ -336,7 +336,6 @@ const VideoCallModal = ({
     socketService.on('call-failed', handleCallFailed);
 
     return () => {
-      isMounted = false;
       cleanupCall();
       socketService.off('call-accepted', handleCallAccepted);
       socketService.off('ice-candidate', handleIceCandidate);
@@ -346,87 +345,75 @@ const VideoCallModal = ({
     };
   }, [visible, isIncoming, target?._id, me, callType, cleanupCall, initPeerConnection, getLocalMediaStream, endCallLocally]);
 
-  // 5. User Actions
+  // 5. User Controls
   const acceptCall = async () => {
-    try {
-      InCallManager.stopRingtone();
-    } catch (e) {}
-
     setCallStatus('connected');
     timerRef.current = setInterval(() => {
       setCallSeconds((s) => s + 1);
     }, 1000);
 
     const pc = pcRef.current;
-    if (!pc) return;
+    if (pc && RTCSessionDescription) {
+      try {
+        const offerSignal = incomingOfferRef.current;
+        if (offerSignal?.type === 'offer') {
+          const desc = new RTCSessionDescription(offerSignal);
+          await pc.setRemoteDescription(desc);
 
-    try {
-      const offerSignal = incomingOfferRef.current;
-      if (offerSignal) {
-        const desc = new RTCSessionDescription(offerSignal);
-        await pc.setRemoteDescription(desc);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
 
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        socketService.answerCall({
-          to: target?._id,
-          signal: answer,
-        });
-      } else {
-        // Fallback basic answer
-        socketService.answerCall({
-          to: target?._id,
-          signal: { type: 'answer' },
-        });
+          socketService.answerCall({
+            to: target?._id,
+            signal: answer,
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn('Error answering WebRTC offer:', err);
       }
-    } catch (err) {
-      console.error('Error answering call:', err);
     }
+
+    // Fallback answer
+    socketService.answerCall({
+      to: target?._id,
+      signal: { type: 'answer' },
+    });
   };
 
   const declineCall = () => {
-    try {
-      InCallManager.stopRingtone();
-    } catch (e) {}
     if (target?._id) {
       socketService.rejectCall({ to: target._id });
     }
     endCallLocally('declined');
   };
 
-  // Toggle Mute / Unmute
+  // Toggle Mute
   const toggleMute = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getAudioTracks().forEach((track) => {
         track.enabled = !track.enabled;
       });
-      setIsMuted(!isMuted);
     }
+    setIsMuted(!isMuted);
   };
 
   // Toggle Speakerphone
   const toggleSpeaker = () => {
-    const nextSpeakerState = !isSpeakerOn;
-    try {
-      InCallManager.setSpeakerphoneOn(nextSpeakerState);
-      setIsSpeakerOn(nextSpeakerState);
-    } catch (e) {
-      console.warn('Error toggling speaker:', e);
-    }
+    setIsSpeakerOn(!isSpeakerOn);
   };
 
-  // Toggle Video Camera Feed
+  // Toggle Camera
   const toggleVideo = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getVideoTracks().forEach((track) => {
         track.enabled = !track.enabled;
       });
-      setIsVideoEnabled(!isVideoEnabled);
     }
+    setIsVideoEnabled(!isVideoEnabled);
   };
 
-  // Flip Camera Front / Back
+  // Flip Camera
   const switchCamera = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getVideoTracks().forEach((track) => {
@@ -448,8 +435,8 @@ const VideoCallModal = ({
     <Modal visible={visible} transparent animationType="slide">
       <StatusBar backgroundColor="#07161A" barStyle="light-content" />
       <View style={styles.modalBackdrop}>
-        {/* Fullscreen Remote Video or Audio Avatar */}
-        {callType === 'video' && remoteStream && callStatus === 'connected' ? (
+        {/* Fullscreen Video Stream or Audio Avatar Background */}
+        {callType === 'video' && remoteStream && callStatus === 'connected' && RTCView ? (
           <RTCView
             streamURL={remoteStream.toURL()}
             style={styles.fullVideoFeed}
@@ -474,7 +461,7 @@ const VideoCallModal = ({
           </View>
         )}
 
-        {/* Floating Call Info Header */}
+        {/* Floating Header Info */}
         <View style={styles.topInfo}>
           <Text style={styles.targetName}>{target?.fullName || 'Contact'}</Text>
           <Text style={styles.statusLabel}>
@@ -490,8 +477,8 @@ const VideoCallModal = ({
           </View>
         </View>
 
-        {/* Picture-in-Picture Local Video Preview (for Video Calls) */}
-        {callType === 'video' && isVideoEnabled && localStream && (
+        {/* Picture-in-Picture Local Video Preview (Video calls only) */}
+        {callType === 'video' && isVideoEnabled && localStream && RTCView && (
           <View style={styles.pipBox}>
             <RTCView
               streamURL={localStream.toURL()}
@@ -502,9 +489,8 @@ const VideoCallModal = ({
           </View>
         )}
 
-        {/* Bottom Floating Control Bar */}
+        {/* Floating Controls */}
         {callStatus === 'ringing' ? (
-          /* Incoming Call Controls (Accept / Decline) */
           <View style={styles.incomingControls}>
             <TouchableOpacity
               style={[styles.callActionBtn, styles.declineBtn]}
@@ -525,9 +511,8 @@ const VideoCallModal = ({
             </TouchableOpacity>
           </View>
         ) : (
-          /* Active Call Controls (Mute, Speaker, Video, Switch Camera, End) */
           <View style={styles.activeControls}>
-            {/* 1. Mute Toggle */}
+            {/* 1. Mic Mute */}
             <TouchableOpacity
               style={[styles.toolBtn, isMuted && styles.toolBtnActive]}
               onPress={toggleMute}
@@ -541,7 +526,7 @@ const VideoCallModal = ({
               <Text style={styles.toolBtnText}>{isMuted ? 'Unmute' : 'Mute'}</Text>
             </TouchableOpacity>
 
-            {/* 2. Speaker Controller Toggle */}
+            {/* 2. Speaker Controller */}
             <TouchableOpacity
               style={[styles.toolBtn, isSpeakerOn && styles.toolBtnHighlight]}
               onPress={toggleSpeaker}
@@ -555,7 +540,7 @@ const VideoCallModal = ({
               <Text style={styles.toolBtnText}>{isSpeakerOn ? 'Speaker' : 'Earpiece'}</Text>
             </TouchableOpacity>
 
-            {/* 3. Video Camera Toggle (If Video Call) */}
+            {/* 3. Video Controls (if video call) */}
             {callType === 'video' && (
               <>
                 <TouchableOpacity
@@ -582,7 +567,7 @@ const VideoCallModal = ({
               </>
             )}
 
-            {/* 4. End Call Button */}
+            {/* 4. End Call */}
             <TouchableOpacity
               style={[styles.callActionBtn, styles.declineBtn]}
               onPress={() => endCallLocally('completed')}
@@ -620,7 +605,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: Platform.OS === 'ios' ? 60 : 40,
     zIndex: 10,
-    backgroundColor: 'rgba(7, 22, 26, 0.6)',
+    backgroundColor: 'rgba(7, 22, 26, 0.65)',
     paddingVertical: 12,
     marginHorizontal: 20,
     borderRadius: 20,
