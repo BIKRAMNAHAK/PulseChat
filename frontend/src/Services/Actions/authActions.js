@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { postApi, getApi } from '../helper';
 import socketService from '../socketService';
+import firebaseService from '../firebaseService';
 
 export const AUTH_START = 'AUTH_START';
 export const AUTH_SUCCESS = 'AUTH_SUCCESS';
@@ -48,6 +49,9 @@ export const verifyOtpAction = (email, otp) => async (dispatch) => {
       // Connect socket
       socketService.connect(res.user._id);
 
+      // Sync Firebase push notification token
+      firebaseService.syncTokenToServer().catch(() => {});
+
       dispatch({
         type: AUTH_SUCCESS,
         payload: { token: res.token, user: res.user },
@@ -74,6 +78,9 @@ export const loginAction = (loginId, password) => async (dispatch) => {
       // Connect socket
       socketService.connect(res.user._id);
 
+      // Sync Firebase push notification token
+      firebaseService.syncTokenToServer().catch(() => {});
+
       dispatch({
         type: AUTH_SUCCESS,
         payload: { token: res.token, user: res.user },
@@ -96,6 +103,7 @@ export const loadUserAction = () => async (dispatch) => {
     if (token && userData) {
       const user = JSON.parse(userData);
       socketService.connect(user._id);
+      firebaseService.syncTokenToServer().catch(() => {});
 
       dispatch({
         type: AUTH_SUCCESS,

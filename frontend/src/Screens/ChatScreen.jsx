@@ -30,6 +30,7 @@ import {
   clearUnreadCountAction,
   editMessageAction,
   deleteMessageAction,
+  ADD_MESSAGE,
 } from '../Services/Actions/chatActions';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import socketService from '../Services/socketService';
@@ -265,6 +266,7 @@ const ChatScreen = ({ route, navigation }) => {
           newMsg.sender === recipient._id
         ) {
           appendUniqueMessage(newMsg);
+          dispatch({ type: ADD_MESSAGE, payload: newMsg });
           socketService.markSeen(recipient._id, user?._id);
         }
       };
@@ -341,17 +343,24 @@ const ChatScreen = ({ route, navigation }) => {
   useEffect(() => {
     if (!isGroup && activeConversation.recipientId === recipient?._id) {
       if (activeConversation.messages && activeConversation.messages.length > 0) {
-        setMessages(() => {
+        setMessages((prev) => {
           const seen = new Set();
-          const unique = [];
+          const merged = [];
+          // 1. Keep all existing local messages so incoming socket messages are NEVER wiped out
+          for (const m of prev) {
+            const key = m._id ? m._id.toString() : null;
+            if (key) seen.add(key);
+            merged.push(m);
+          }
+          // 2. Merge messages from Redux activeConversation
           for (const m of activeConversation.messages) {
             const key = m._id ? m._id.toString() : null;
             if (!key || !seen.has(key)) {
               if (key) seen.add(key);
-              unique.push(m);
+              merged.push(m);
             }
           }
-          return unique;
+          return merged;
         });
       }
       setCanChat(activeConversation.canChat);

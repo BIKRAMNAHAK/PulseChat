@@ -260,6 +260,22 @@ const StatusScreen = () => {
     return false;
   };
 
+  const getUniqueViewers = (viewers) => {
+    if (!viewers || !Array.isArray(viewers)) return [];
+    const seen = new Set();
+    const unique = [];
+    for (const v of viewers) {
+      const uId = (v.user?._id || v.user)?.toString();
+      if (uId && !seen.has(uId)) {
+        seen.add(uId);
+        unique.push(v);
+      }
+    }
+    return unique;
+  };
+
+  const uniqueStoryViewers = getUniqueViewers(currentStory?.viewers);
+
   useEffect(() => {
     if (currentStory?.mediaType === 'text') {
       setMediaLoading(false);
@@ -718,7 +734,7 @@ const StatusScreen = () => {
             >
               <Ionicons name="eye-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
               <Text style={styles.viewersCountText}>
-                {currentStory.viewers?.length || 0} views
+                {uniqueStoryViewers.length} views
               </Text>
             </TouchableOpacity>
           )}
@@ -736,7 +752,7 @@ const StatusScreen = () => {
               <View style={[styles.sheetContent, { backgroundColor: currentTheme.card }]}>
                 <View style={styles.sheetHeader}>
                   <Text style={[styles.sheetTitle, { color: currentTheme.textPrimary }]}>
-                    Viewed by {currentStory?.viewers?.length || 0}
+                    Viewed by {uniqueStoryViewers.length}
                   </Text>
                   <TouchableOpacity onPress={() => setViewersSheetVisible(false)}>
                     <Ionicons name="close" size={24} color={currentTheme.textSecondary} />
@@ -744,8 +760,8 @@ const StatusScreen = () => {
                 </View>
 
                 <ScrollView style={styles.sheetList}>
-                  {currentStory?.viewers && currentStory.viewers.length > 0 ? (
-                    currentStory.viewers.map((v, i) => (
+                  {uniqueStoryViewers && uniqueStoryViewers.length > 0 ? (
+                    uniqueStoryViewers.map((v, i) => (
                       <View key={i} style={[styles.viewerRow, { borderBottomColor: currentTheme.border }]}>
                         <View style={styles.viewerAvatar}>
                           <Text style={styles.viewerAvatarText}>

@@ -106,13 +106,28 @@ exports.getStatuses = async (req, res) => {
       .populate('viewers.user', 'fullName profilePic')
       .sort({ createdAt: -1 });
 
+    // Helper to deduplicate viewers by unique user
+    const sanitizeViewers = (statusDoc) => {
+      const obj = statusDoc.toObject ? statusDoc.toObject() : { ...statusDoc };
+      if (!obj.viewers || !Array.isArray(obj.viewers)) return obj;
+      const seen = new Set();
+      obj.viewers = obj.viewers.filter((v) => {
+        const uId = (v.user?._id || v.user)?.toString();
+        if (!uId || seen.has(uId)) return false;
+        seen.add(uId);
+        return true;
+      });
+      return obj;
+    };
+
     // Group by user
-    const myStatuses = activeStatuses.filter(
-      (s) => s.user._id.toString() === currentUserId.toString()
-    );
-    const friendsRaw = activeStatuses.filter(
-      (s) => s.user._id.toString() !== currentUserId.toString()
-    );
+    const myStatuses = activeStatuses
+      .filter((s) => s.user._id.toString() === currentUserId.toString())
+      .map(sanitizeViewers);
+
+    const friendsRaw = activeStatuses
+      .filter((s) => s.user._id.toString() !== currentUserId.toString())
+      .map(sanitizeViewers);
 
     // Group friends statuses by user for WhatsApp-style multiple stories
     const groupedFriendsMap = new Map();
@@ -128,7 +143,9 @@ exports.getStatuses = async (req, res) => {
       }
       const group = groupedFriendsMap.get(fId);
       group.stories.push(st);
-      const isViewed = st.viewers && st.viewers.some((v) => v.user?.toString() === currentUserId.toString());
+      const isViewed =
+        st.viewers &&
+        st.viewers.some((v) => (v.user?._id || v.user)?.toString() === currentUserId.toString());
       if (!isViewed) {
         group.hasUnviewed = true;
       }
@@ -165,16 +182,32 @@ exports.viewStatus = async (req, res) => {
       });
     }
 
-    // Check if current user has already viewed
-    const alreadyViewed = status.viewers.some(
-      (v) => v.user.toString() === currentUserId.toString()
-    );
+    // Never count status owner viewing their own status
+    if (status.user.toString() === currentUserId.toString()) {
+      return res.status(200).json({
+        success: true,
+        message: 'Own status view not recorded.',
+        viewersCount: status.viewers.length,
+      });
+    }
 
-    if (!alreadyViewed) {
+    // Check if current user has already viewed (comparing String IDs accurately)
+    const currentUserIdStr = currentUserId.toString();
+    const existingIndex = status.viewers.findIndex((v) => {
+      const viewerId = (v.user?._id || v.user)?.toString();
+      return viewerId === currentUserIdStr;
+    });
+
+    if (existingIndex === -1) {
+      // First time viewing: add to viewers list
       status.viewers.push({
         user: currentUserId,
         viewedAt: new Date(),
       });
+      await status.save();
+    } else {
+      // Already viewed: update viewedAt timestamp without duplicating!
+      status.viewers[existingIndex].viewedAt = new Date();
       await status.save();
     }
 

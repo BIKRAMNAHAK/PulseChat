@@ -10,6 +10,7 @@ import SatckNavigation from './src/NavigationStacks/SatckNavigation';
 import { theme } from './src/Services/helper';
 import socketService from './src/Services/socketService';
 import { logoutAction } from './src/Services/Actions/authActions';
+import firebaseService from './src/Services/firebaseService';
 
 const Loader = () => (
   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0F2D37' }}>
@@ -19,6 +20,9 @@ const Loader = () => (
 
 const AppContent = () => {
   useEffect(() => {
+    // Initialize Firebase Push Notifications
+    firebaseService.init();
+
     const handleForceLogout = (data) => {
       Alert.alert(
         'Session Expired',
