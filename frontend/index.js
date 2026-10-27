@@ -1,16 +1,19 @@
-/**
- * @format
- */
-
 import { AppRegistry } from 'react-native';
-import messaging from '@react-native-firebase/messaging';
 import App from './App';
 import { name as appName } from './app.json';
 
-// Register Firebase background message handler (when app is in background or closed)
-messaging().setBackgroundMessageHandler(async (remoteMessage) => {
-  console.log('📬 Background FCM Message received:', remoteMessage);
-});
+// Safely register Firebase background message handler (supports Modular API v27+)
+try {
+  const { getMessaging, setBackgroundMessageHandler } = require('@react-native-firebase/messaging');
+  if (typeof getMessaging === 'function' && typeof setBackgroundMessageHandler === 'function') {
+    const messaging = getMessaging();
+    setBackgroundMessageHandler(messaging, async (remoteMessage) => {
+      console.log('📬 Background FCM Message received:', remoteMessage);
+    });
+  }
+} catch (e) {
+  console.log('ℹ️ Firebase background messaging not initialized:', e.message);
+}
 
 // Register for both myapp and PulseChat so native Android activity always finds it
 AppRegistry.registerComponent('myapp', () => App);

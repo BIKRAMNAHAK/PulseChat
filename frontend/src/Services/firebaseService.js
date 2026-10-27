@@ -1,7 +1,13 @@
-import messaging from '@react-native-firebase/messaging';
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { postApi } from './helper';
+
+let messagingModule = null;
+try {
+  messagingModule = require('@react-native-firebase/messaging');
+} catch (e) {
+  console.log('ℹ️ @react-native-firebase/messaging module not loaded:', e.message);
+}
 
 class FirebaseService {
   constructor() {
@@ -9,33 +15,55 @@ class FirebaseService {
     this.unsubscribeOnMessage = null;
   }
 
+  getMessagingInstance() {
+    if (!messagingModule || typeof messagingModule.getMessaging !== 'function') {
+      return null;
+    }
+    try {
+      return messagingModule.getMessaging();
+    } catch (e) {
+      console.warn('getMessaging error:', e.message);
+      return null;
+    }
+  }
+
   async init() {
     try {
-      await this.requestPermission();
-      await this.registerToken();
+      const messaging = this.getMessagingInstance();
+      if (!messaging) {
+        console.log('ℹ️ Firebase Messaging instance not available.');
+        return;
+      }
+
+      await this.requestPermission(messaging);
+      await this.registerToken(messaging);
 
       // Listen for token refresh
-      this.unsubscribeTokenRefresh = messaging().onTokenRefresh(async (newToken) => {
-        console.log('🔄 FCM Token refreshed:', newToken);
-        await this.syncTokenToServer(newToken);
-      });
+      if (typeof messagingModule.onTokenRefresh === 'function') {
+        this.unsubscribeTokenRefresh = messagingModule.onTokenRefresh(messaging, async (newToken) => {
+          console.log('🔄 FCM Token refreshed:', newToken);
+          await this.syncTokenToServer(newToken);
+        });
+      }
 
       // Foreground message listener
-      this.unsubscribeOnMessage = messaging().onMessage(async (remoteMessage) => {
-        console.log('📩 Foreground FCM Notification:', remoteMessage);
-        const title = remoteMessage.notification?.title || remoteMessage.data?.title || 'PulseChat';
-        const body = remoteMessage.notification?.body || remoteMessage.data?.body || 'New message';
+      if (typeof messagingModule.onMessage === 'function') {
+        this.unsubscribeOnMessage = messagingModule.onMessage(messaging, async (remoteMessage) => {
+          console.log('📩 Foreground FCM Notification:', remoteMessage);
+          const title = remoteMessage.notification?.title || remoteMessage.data?.title || 'PulseChat';
+          const body = remoteMessage.notification?.body || remoteMessage.data?.body || 'New message';
 
-        if (remoteMessage.data?.type === 'incoming_call') {
-          Alert.alert(title, body, [{ text: 'OK' }]);
-        }
-      });
+          if (remoteMessage.data?.type === 'incoming_call') {
+            Alert.alert(title, body, [{ text: 'OK' }]);
+          }
+        });
+      }
     } catch (e) {
       console.warn('FirebaseService init error:', e);
     }
   }
 
-  async requestPermission() {
+  async requestPermission(messagingParam) {
     try {
       if (Platform.OS === 'android') {
         if (Platform.Version >= 33) {
@@ -44,27 +72,37 @@ class FirebaseService {
           );
         }
       }
-      const authStatus = await messaging().requestPermission();
-      const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-      return enabled;
+
+      const messaging = messagingParam || this.getMessagingInstance();
+      if (messaging && typeof messagingModule.requestPermission === 'function') {
+        const authStatus = await messagingModule.requestPermission(messaging);
+        const { AuthorizationStatus } = messagingModule;
+        const enabled =
+          authStatus === AuthorizationStatus?.AUTHORIZED ||
+          authStatus === AuthorizationStatus?.PROVISIONAL ||
+          authStatus === 1;
+        return enabled;
+      }
+      return true;
     } catch (e) {
-      console.warn('Notification permission error:', e);
+      console.warn('Notification permission error:', e.message);
       return false;
     }
   }
 
-  async registerToken() {
+  async registerToken(messagingParam) {
     try {
-      const fcmToken = await messaging().getToken();
-      if (fcmToken) {
-        console.log('🔥 Device FCM Token obtained successfully');
-        await AsyncStorage.setItem('fcm_token', fcmToken);
-        await this.syncTokenToServer(fcmToken);
+      const messaging = messagingParam || this.getMessagingInstance();
+      if (messaging && typeof messagingModule.getToken === 'function') {
+        const fcmToken = await messagingModule.getToken(messaging);
+        if (fcmToken) {
+          console.log('🔥 Device FCM Token obtained successfully');
+          await AsyncStorage.setItem('fcm_token', fcmToken);
+          await this.syncTokenToServer(fcmToken);
+        }
       }
     } catch (e) {
-      console.warn('Error fetching FCM token:', e);
+      console.warn('Error fetching FCM token:', e.message);
     }
   }
 
